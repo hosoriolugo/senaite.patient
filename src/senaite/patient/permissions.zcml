@@ -1,0 +1,23 @@
+<configure
+    xmlns="http://namespaces.zope.org/zope"
+    i18n_domain="senaite.patient">
+
+  <permission id="senaite.patient.permissions.ManagePatients" title="senaite.patient: Manage Patients"/>
+
+  <!-- Add content permissions -->
+  <permission id="senaite.patient.permissions.AddPatient" title="senaite.patient: Add Patient"/>
+  <permission id="senaite.patient.permissions.AddPatientFolder" title="senaite.patient: Add Patient Folder"/>
+
+  <!-- Transition permissions -->
+  <permission id="senaite.patient.permissions.TransitionActivate" title="senaite.patient: Transition: Activate"/>
+  <permission id="senaite.patient.permissions.TransitionDeactivate" title="senaite.patient: Transition: Deactivate"/>
+
+  <!-- Field permissions  -->
+  <permission id="senaite.patient.permissions.FieldEditDateOfBirth" title="senaite.patient: Field: Edit Date of Birth"/>
+  <permission id="senaite.patient.permissions.FieldEditMRN" title="senaite.patient: Field: Edit MRN"/>
+  <permission id="senaite.patient.permissions.FieldEditAddress" title="senaite.patient: Field: Edit Address"/>
+  <permission id="senaite.patient.permissions.FieldEditFullName" title="senaite.patient: Field: Edit Fullname"/>
+  <permission id="senaite.patient.permissions.FieldEditSex" title="senaite.patient: Field: Edit Sex"/>
+  <permission id="senaite.patient.permissions.FieldEditGender" title="senaite.patient: Field: Edit Gender"/>
+
+</configure>

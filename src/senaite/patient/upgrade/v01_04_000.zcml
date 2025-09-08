@@ -1,0 +1,165 @@
+<configure
+    xmlns="http://namespaces.zope.org/zope"
+    xmlns:genericsetup="http://namespaces.zope.org/genericsetup">
+
+  <!-- 1416: Allow searches by patient in samples -->
+  <genericsetup:upgradeStep
+      title="Remove lead and trailing whitespaces from MRN"
+      description="
+        This upgrade step walks through all samples and removes trailing and
+        leading whitespaces from Medical Record Number fields. This is
+        necessary because when creating a Patient object, the MRN is
+        automatically stripped in setMRN function, although is left without
+        changes in AnalysisRequest."
+      source="1415"
+      destination="1416"
+      handler=".v01_04_000.remove_whitespaces_mrn"
+      profile="senaite.patient:default"/>
+
+  <!-- 1415: Allow searches by patient in samples -->
+  <genericsetup:upgradeStep
+      title="SENAITE PATIENT 1.4.0: Allow patient searches in samples"
+      description="
+        This upgrade step adds the mrn and patient full name as tokens for the
+        existing `listing_searchable_text` index from samples catalog and does
+        the reindex of the index"
+      source="1414"
+      destination="1415"
+      handler=".v01_04_000.allow_searches_by_patient_in_samples"
+      profile="senaite.patient:default"/>
+
+  <!-- 1414: Fix Auditlog for Patient folder  -->
+  <genericsetup:upgradeStep
+      title="SENAITE PATIENT 1.4.0: Remove snapshots from Patient folder"
+      description="Remove snapshots and auditlog from Patient folder"
+      source="1413"
+      destination="1414"
+      handler=".v01_04_000.remove_patientfolder_snapshots"
+      profile="senaite.patient:default"/>
+
+  <!-- 1413: Fix duplicate MRNs -->
+  <genericsetup:upgradeStep
+      title="SENAITE PATIENT 1.4.0: Fix MRN duplicates"
+      description="Fix MRN duplicates"
+      source="1412"
+      destination="1413"
+      handler=".v01_04_000.fix_mrn_duplicates"
+      profile="senaite.patient:default"/>
+
+  <!-- 1411: Migrate sample's DateOfBirth field to AgeDateOfBirthField -->
+  <genericsetup:upgradeStep
+      title="SENAITE PATIENT 1.4.0: Use System's TZ to store Dates of birth that are TZ-naive"
+      description="Use System's TZ to store Dates of birth that are timezone-naive"
+      source="1411"
+      destination="1412"
+      handler=".v01_04_000.update_naive_tz_dobs"
+      profile="senaite.patient:default"/>
+
+  <!-- 1411: Migrate sample's DateOfBirth field to AgeDateOfBirthField -->
+  <genericsetup:upgradeStep
+      title="SENAITE PATIENT 1.4.0: Migrate sample's DateOfBirth field"
+      description="Migrate sample's DateOfBirth field to AgeDateOfBirthField"
+      source="1410"
+      destination="1411"
+      handler=".v01_04_000.migrate_date_of_birth_field"
+      profile="senaite.patient:default"/>
+
+  <!-- 1410: Remove stale patient ID entries-->
+  <genericsetup:upgradeStep
+      title="SENAITE PATIENT 1.4.0: Remove stale patient ID catalog entries"
+      description="Remove all Patient ID related catalog entries"
+      source="1409"
+      destination="1410"
+      handler="senaite.patient.upgrade.v01_04_000.remove_stale_patient_id_catalog_entries"
+      profile="senaite.patient:default"/>
+
+  <!-- 1409: Migrate Patient ID to Identifiers -->
+  <genericsetup:upgradeStep
+      title="SENAITE PATIENT 1.4.0: Migrate Patient ID to identifiers"
+      description="Remove Patient ID field and move existing values to identifiers"
+      source="1408"
+      destination="1409"
+      handler="senaite.patient.upgrade.v01_04_000.migrate_patient_id_to_identifiers"
+      profile="senaite.patient:default"/>
+
+  <!-- 1408: Patients inside clients -->
+  <genericsetup:upgradeStep
+      title="SENAITE PATIENT 1.4.0: Update Patient Workflows"
+      description="Update the patient workflows and permission mappings"
+      source="1407"
+      destination="1408"
+      handler="senaite.patient.upgrade.v01_04_000.update_patient_workflows"
+      profile="senaite.patient:default"/>
+
+  <!-- 1407: Patients inside clients -->
+  <genericsetup:upgradeStep
+      title="SENAITE PATIENT 1.4.0: Allow patients in clients"
+      description="Allow to create patients in the context of a client"
+      source="1406"
+      destination="1407"
+      handler="senaite.patient.upgrade.v01_04_000.allow_patients_in_clients"
+      profile="senaite.patient:default"/>
+
+  <!-- 1406: Fix samples without patient middle name -->
+  <genericsetup:upgradeStep
+      title="SENAITE PATIENT 1.4.0: Fix samples without patient middle name"
+      description="Fix samples without patient middle name"
+      source="1405"
+      destination="1406"
+      handler="senaite.patient.upgrade.v01_04_000.fix_samples_without_middlename"
+      profile="senaite.patient:default"/>
+
+  <!-- 1405: Fix patient's middlename is not displayed in samples listing -->
+  <genericsetup:upgradeStep
+      title="SENAITE PATIENT 1.4.0: Patient middle name is missing in samples"
+      description="Patient middle name is missing in samples listing"
+      source="1404"
+      destination="1405"
+      handler="senaite.patient.upgrade.v01_04_000.fix_samples_middlename"
+      profile="senaite.patient:default"/>
+
+  <!-- 1404: Additional Indexes -->
+  <genericsetup:upgradeStep
+      title="SENAITE PATIENT 1.4.0: Additional patient search indexes"
+      description="Add ZCTextIndexes for patient MRN/ID"
+      source="1403"
+      destination="1404"
+      handler="senaite.patient.upgrade.v01_04_000.upgrade_catalog_indexes"
+      profile="senaite.patient:default"/>
+
+  <!-- 1403: Upgrade controlpanel -->
+  <genericsetup:upgradeStep
+      title="SENAITE PATIENT 1.4.0: Upgrade patient controlpanel"
+      description="Run registry and controlpanel import steps"
+      source="1402"
+      destination="1403"
+      handler="senaite.patient.upgrade.v01_04_000.upgrade_patient_control_panel"
+      profile="senaite.patient:default"/>
+
+  <!-- 1402: Move mobile phone number to additional phone numbers -->
+  <genericsetup:upgradeStep
+      title="SENAITE PATIENT 1.4.0: Migrate mobile phone number"
+      description="Move mobile phone number to additional phone numbers record"
+      source="1401"
+      destination="1402"
+      handler="senaite.patient.upgrade.v01_04_000.upgrade_patient_mobile_phone_number"
+      profile="senaite.patient:default"/>
+
+  <!-- 1401: Reindex QC Analyses
+       https://github.com/senaite/senaite.core/pull/2157 -->
+  <genericsetup:upgradeStep
+      title="SENAITE PATIENT 1.4.0: Marital Status"
+      description="Update patient controlpanel and add catalog index"
+      source="1400"
+      destination="1401"
+      handler="senaite.patient.upgrade.v01_04_000.upgrade_marital_status"
+      profile="senaite.patient:default"/>
+
+  <genericsetup:upgradeStep
+      title="Upgrade to SENAITE PATIENT 1.4.0"
+      source="1300"
+      destination="1400"
+      handler="senaite.patient.upgrade.v01_04_000.upgrade"
+      profile="senaite.patient:default"/>
+
+</configure>

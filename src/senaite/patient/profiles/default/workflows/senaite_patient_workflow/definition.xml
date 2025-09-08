@@ -1,0 +1,241 @@
+<?xml version="1.0"?>
+<dc-workflow xmlns:i18n="http://xml.zope.org/namespaces/i18n"
+             workflow_id="senaite_patient_workflow"
+             title="Workflow for senaite patient"
+             description=""
+             state_variable="review_state"
+             initial_state="active"
+             manager_bypass="False"
+             i18n:domain="senaite.patient">
+
+  <!-- MANAGED PERMISSIONS -->
+  <permission>Add portal content</permission>
+  <permission>Access contents information</permission>
+  <permission>Delete objects</permission>
+  <permission>List folder contents</permission>
+  <permission>Modify portal content</permission>
+  <permission>View</permission>
+  <!-- senaite.patient: Field permissions -->
+  <permission>senaite.patient: Field: Edit MRN</permission>
+  <permission>senaite.patient: Field: Edit ID</permission>
+  <permission>senaite.patient: Field: Edit Fullname</permission>
+  <permission>senaite.patient: Field: Edit Sex</permission>
+  <permission>senaite.patient: Field: Edit Gender</permission>
+  <permission>senaite.patient: Field: Edit Date of Birth</permission>
+  <permission>senaite.patient: Field: Edit Address</permission>
+  <!-- senaite.patient: Transition permissions -->
+  <permission>senaite.patient: Transition: Activate</permission>
+  <permission>senaite.patient: Transition: Deactivate</permission>
+  <!-- /MANAGED PERMISSIONS -->
+
+  <!-- State: active -->
+  <state state_id="active" title="Active" i18n:attributes="title">
+
+    <!-- TRANSITIONS -->
+    <exit-transition transition_id="deactivate" />
+    <!-- /TRANSITIONS -->
+
+    <!-- MANAGED PERMISSIONS -->
+    <!-- This permission governs if a patient should appear in searches
+         NOTE: We add `ClientGuest` role here for shared patients, so that they
+               appear in the reference widget
+    -->
+    <permission-map name="Access contents information" acquired="False">
+      <permission-role>ClientGuest</permission-role>
+      <permission-role>LabClerk</permission-role>
+      <permission-role>LabManager</permission-role>
+      <permission-role>Manager</permission-role>
+      <permission-role>Owner</permission-role>
+    </permission-map>
+    <!-- Roles needed to add contents inside patients.
+         Not needed at the moment, but we use the default roles -->
+    <permission-map name="Add portal content" acquired="False">
+      <permission-role>LabClerk</permission-role>
+      <permission-role>LabManager</permission-role>
+      <permission-role>Manager</permission-role>
+      <permission-role>Owner</permission-role>
+    </permission-map>
+    <!-- Never allow to delete contents -->
+    <permission-map name="Delete objects" acquired="False">
+    </permission-map>
+    <!-- Roles needed to list contents in patients.
+         Not needed at the moment, but we use the default roles -->
+    <permission-map name="List folder contents" acquired="False">
+      <permission-role>ClientGuest</permission-role>
+      <permission-role>LabClerk</permission-role>
+      <permission-role>LabManager</permission-role>
+      <permission-role>Manager</permission-role>
+      <permission-role>Owner</permission-role>
+    </permission-map>
+    <!-- We allow the Owner role here to edit client local patients, but not the
+         `ClientGuest` to edit shared patients! -->
+    <permission-map name="Modify portal content" acquired="False">
+      <permission-role>LabClerk</permission-role>
+      <permission-role>LabManager</permission-role>
+      <permission-role>Manager</permission-role>
+      <permission-role>Owner</permission-role>
+    </permission-map>
+    <!-- We allow the `Owner` role to view patients, to allow client contacts to
+         see "client local" patients.
+
+         We also allow the `ClientGuest` role to view patients, if e.g. a lab
+         manager creates a sample with a patient referenced from the global
+         patients folder.
+         This allows to view the patient when clicked on the link inside the
+         samples listing w/o getting insufficient privileges
+    -->
+    <permission-map name="View" acquired="False">
+      <permission-role>ClientGuest</permission-role>
+      <permission-role>LabClerk</permission-role>
+      <permission-role>LabManager</permission-role>
+      <permission-role>Manager</permission-role>
+      <permission-role>Owner</permission-role>
+    </permission-map>
+
+    <!-- Custom field permissions (Use default roles from rolemap) -->
+    <permission-map name="senaite.patient: Field: Edit MRN" acquired="True" />
+    <permission-map name="senaite.patient: Field: Edit ID" acquired="True" />
+    <permission-map name="senaite.patient: Field: Edit Fullname" acquired="True" />
+    <permission-map name="senaite.patient: Field: Edit Sex" acquired="True" />
+    <permission-map name="senaite.patient: Field: Edit Gender" acquired="True" />
+    <permission-map name="senaite.patient: Field: Edit Date of Birth" acquired="True" />
+    <permission-map name="senaite.patient: Field: Edit Address" acquired="True" />
+    <permission-map name="senaite.patient: Transition: Deactivate" acquired="True" />
+    <!-- /MANGED PERMISSIONS -->
+
+  </state>
+
+  <!-- State: INACTIVE -->
+  <state state_id="inactive" title="Inactive" i18n:attributes="title">
+
+    <!-- TRANSITIONS -->
+    <exit-transition transition_id="activate" />
+    <!-- /TRANSITIONS -->
+
+    <!-- MANAGED PERMISSIONS -->
+    <!-- This permission governs if a patient should appear in searches
+         NOTE: We add `ClientGuest` role here for shared patients, so that they
+               appear in the reference widget
+    -->
+    <permission-map name="Access contents information" acquired="False">
+      <permission-role>ClientGuest</permission-role>
+      <permission-role>LabClerk</permission-role>
+      <permission-role>LabManager</permission-role>
+      <permission-role>Manager</permission-role>
+      <permission-role>Owner</permission-role>
+    </permission-map>
+    <!-- No longer allow to add contents to a deactivated patient -->
+    <permission-map name="Add portal content" acquired="False">
+    </permission-map>
+    <!-- Never allow to delete contents -->
+    <permission-map name="Delete objects" acquired="False">
+    </permission-map>
+    <!-- Roles needed to list contents in deactivated patients.
+         Not needed at the moment, but we use the default roles -->
+    <permission-map name="List folder contents" acquired="False">
+      <permission-role>ClientGuest</permission-role>
+      <permission-role>LabClerk</permission-role>
+      <permission-role>LabManager</permission-role>
+      <permission-role>Manager</permission-role>
+      <permission-role>Owner</permission-role>
+    </permission-map>
+    <!-- Do not allow to edit deactivated patients -->
+    <permission-map name="Modify portal content" acquired="False">
+    </permission-map>
+    <!-- We allow the `Owner` role to view patients, to allow client contacts to
+         see "client local" patients.
+
+         We also allow the `ClientGuest` role to view patients, if e.g. a lab
+         manager creates a sample with a patient referenced from the global
+         patients folder.
+         This allows to view the patient when clicked on the link inside the
+         samples listing w/o getting insufficient privileges
+    -->
+    <permission-map name="View" acquired="False">
+      <permission-role>ClientGuest</permission-role>
+      <permission-role>LabClerk</permission-role>
+      <permission-role>LabManager</permission-role>
+      <permission-role>Manager</permission-role>
+      <permission-role>Owner</permission-role>
+    </permission-map>
+
+    <!-- Disallow to edit fields -->
+    <permission-map name="senaite.patient: Field: Edit MRN" acquired="False" />
+    <permission-map name="senaite.patient: Field: Edit ID" acquired="False" />
+    <permission-map name="senaite.patient: Field: Edit Fullname" acquired="False" />
+    <permission-map name="senaite.patient: Field: Edit Sex" acquired="False" />
+    <permission-map name="senaite.patient: Field: Edit Gender" acquired="False" />
+    <permission-map name="senaite.patient: Field: Edit Date of Birth" acquired="False" />
+    <permission-map name="senaite.patient: Field: Edit Address" acquired="False" />
+    <permission-map name="senaite.patient: Transition: Activate" acquired="True" />
+    <!-- /MANAGED PERMISSIONS -->
+
+  </state>
+
+  <!-- Transition: activate -->
+  <transition transition_id="activate" title="Activate" new_state="active" trigger="USER" before_script="" after_script="" i18n:attributes="title">
+    <action url="" category="workflow" icon="">Activate</action>
+    <guard>
+      <guard-permission>senaite.patient: Transition: Activate</guard-permission>
+      <guard-expression></guard-expression>
+    </guard>
+  </transition>
+
+  <!-- Transition: deactivate -->
+  <transition transition_id="deactivate" title="Deactivate" new_state="inactive" trigger="USER" before_script="" after_script="" i18n:attributes="title">
+    <action url="" category="workflow" icon="">Deactivate</action>
+    <guard>
+      <guard-permission>senaite.patient: Transition: Deactivate</guard-permission>
+      <guard-expression></guard-expression>
+    </guard>
+  </transition>
+
+  <!-- WF Variables -->
+  <variable variable_id="action" for_catalog="False" for_status="True" update_always="True">
+    <description>Previous transition</description>
+    <default>
+      <expression>transition/getId|nothing</expression>
+    </default>
+    <guard>
+    </guard>
+  </variable>
+
+  <variable variable_id="actor" for_catalog="False" for_status="True" update_always="True">
+    <description>The ID of the user who performed the last transition</description>
+    <default>
+      <expression>user/getId</expression>
+    </default>
+    <guard>
+    </guard>
+  </variable>
+
+  <variable variable_id="comments" for_catalog="False" for_status="True" update_always="True">
+    <description>Comment about the last transition</description>
+    <default>
+      <expression>python:state_change.kwargs.get('comment', '')</expression>
+    </default>
+    <guard>
+    </guard>
+  </variable>
+
+  <variable variable_id="review_history" for_catalog="False" for_status="False" update_always="False">
+    <description>Provides access to workflow history</description>
+    <default>
+      <expression>state_change/getHistory</expression>
+    </default>
+    <guard>
+      <guard-permission>Request review</guard-permission>
+      <guard-permission>Review portal content</guard-permission>
+    </guard>
+  </variable>
+
+  <variable variable_id="time" for_catalog="False" for_status="True" update_always="True">
+    <description>When the previous transition was performed</description>
+    <default>
+      <expression>state_change/getDateTime</expression>
+    </default>
+    <guard>
+    </guard>
+  </variable>
+
+</dc-workflow>

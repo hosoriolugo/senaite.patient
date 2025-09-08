@@ -1,0 +1,46 @@
+<configure
+    xmlns="http://namespaces.zope.org/zope"
+    xmlns:genericsetup="http://namespaces.zope.org/genericsetup">
+
+  <!-- 1503: Use senaite registry for catalog mappings  -->
+  <genericsetup:upgradeStep
+      title="Use senaite registry for catalog mappings"
+      description="
+        This upgrade step adds the catalog mappings for patient in senaite
+        registry instead of relying on a `_catalog` attribute in DX object"
+      source="1502"
+      destination="1503"
+      handler=".v01_05_000.update_catalog_mappings"
+      profile="senaite.patient:default"/>
+
+  <!-- 1502: Allow/Disallow future dates of birth -->
+  <genericsetup:upgradeStep
+      title="Add setting to allow/disallow future dates of birth"
+      description="
+        This upgrade step adds a configuration setting to allow or disallow
+        the introduction of future dates of birth. Non-allowed by default."
+      source="1501"
+      destination="1502"
+      handler=".v01_05_000.import_registry"
+      profile="senaite.patient:default"/>
+
+  <!-- 1501: Allow to flag patients as deceased -->
+  <genericsetup:upgradeStep
+      title="Allow to flag patients as deceased"
+      description="
+        This upgrade step adds the field Deceased for patient content type, as
+        well as a new index 'patient_deceased' to allows to filter deceased
+        patients in patients listing."
+      source="1500"
+      destination="1501"
+      handler=".v01_05_000.upgrade_catalog_indexes"
+      profile="senaite.patient:default"/>
+
+  <genericsetup:upgradeStep
+      title="Upgrade to SENAITE.PATIENT 1.5.0"
+      source="1416"
+      destination="1500"
+      handler=".v01_05_000.upgrade"
+      profile="senaite.patient:default"/>
+
+</configure>

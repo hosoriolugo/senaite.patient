@@ -1,0 +1,31 @@
+<configure
+    xmlns="http://namespaces.zope.org/zope"
+    i18n_domain="senaite.patient">
+
+  <!-- After upgrade step event handler -->
+  <subscriber
+    for="senaite.core.events.upgrade.IAfterUpgradeStepEvent"
+    handler="senaite.patient.subscribers.upgrade.afterUpgradeStepHandler"
+  />
+  
+  <!-- Sample modified -->
+  <subscriber
+      for="bika.lims.interfaces.IAnalysisRequest
+           zope.lifecycleevent.interfaces.IObjectModifiedEvent"
+      handler=".analysisrequest.on_object_edited"
+      />
+
+  <!-- Sample created -->
+  <subscriber
+      for="bika.lims.interfaces.IAnalysisRequest
+           Products.Archetypes.interfaces.IObjectInitializedEvent"
+      handler=".analysisrequest.on_object_created"
+      />
+
+  <subscriber
+      for="senaite.patient.browser.controlpanel.IPatientControlPanel
+           zope.lifecycleevent.interfaces.IObjectModifiedEvent"
+      handler=".controlpanel.on_patient_settings_changed"
+      />
+
+</configure>

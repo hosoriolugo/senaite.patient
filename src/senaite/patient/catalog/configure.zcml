@@ -1,0 +1,7 @@
+<configure xmlns="http://namespaces.zope.org/zope"
+           i18n_domain="senaite.patient">
+
+  <!-- Catalog indexes -->
+  <include package=".indexer" />
+
+</configure>

@@ -1,0 +1,105 @@
+<configure
+    xmlns="http://namespaces.zope.org/zope"
+    xmlns:monkey="http://namespaces.plone.org/monkey"
+    i18n_domain="senaite.patient">
+
+  <!-- MRN temporary -->
+  <monkey:patch
+    description="Whether the Medical Record Number is temporary"
+    class="bika.lims.content.analysisrequest.AnalysisRequest"
+    original="isMedicalRecordTemporary"
+    ignoreOriginal="True"
+    replacement=".content.analysisrequest.isMedicalRecordTemporary" />
+
+  <!-- MRN -->
+  <monkey:patch
+    description="Medical Record Number value assigned to the sample"
+    class="bika.lims.content.analysisrequest.AnalysisRequest"
+    original="getMedicalRecordNumberValue"
+    ignoreOriginal="True"
+    replacement=".content.analysisrequest.getMedicalRecordNumberValue" />
+
+  <!-- Full Name -->
+  <monkey:patch
+    description="Patient's full name"
+    class="bika.lims.content.analysisrequest.AnalysisRequest"
+    original="getPatientFullName"
+    ignoreOriginal="True"
+    replacement=".content.analysisrequest.getPatientFullName" />
+
+  <!-- Sex -->
+  <monkey:patch
+      description="Patient's sex"
+      class="bika.lims.content.analysisrequest.AnalysisRequest"
+      original="getSex"
+      ignoreOriginal="True"
+      replacement=".content.analysisrequest.getSex" />
+  <monkey:patch
+      description="Patient's sex"
+      class="bika.lims.content.analysisrequest.AnalysisRequest"
+      original="setSex"
+      ignoreOriginal="True"
+      replacement=".content.analysisrequest.setSex" />
+
+  <!-- Gender -->
+  <monkey:patch
+    description="Patient's gender"
+    class="bika.lims.content.analysisrequest.AnalysisRequest"
+    original="getGender"
+    ignoreOriginal="True"
+    replacement=".content.analysisrequest.getGender" />
+
+  <!-- Patient Date of Birth -->
+  <monkey:patch
+    description="Patient's date of birth or age"
+    class="bika.lims.content.analysisrequest.AnalysisRequest"
+    original="getDateOfBirth"
+    ignoreOriginal="True"
+    replacement=".content.analysisrequest.getDateOfBirth" />
+
+  <monkey:patch
+      description="Patient's date of birth or age"
+      class="bika.lims.content.analysisrequest.AnalysisRequest"
+      original="setDateOfBirth"
+      ignoreOriginal="True"
+      replacement=".content.analysisrequest.setDateOfBirth" />
+
+  <monkey:patch
+      description="Whether patient's date of birth is estimated"
+      class="bika.lims.content.analysisrequest.AnalysisRequest"
+      original="getDateOfBirthEstimated"
+      ignoreOriginal="True"
+      replacement=".content.analysisrequest.getDateOfBirthEstimated" />
+
+  <monkey:patch
+      description="Whether patient's date of birth was inferred from age"
+      class="bika.lims.content.analysisrequest.AnalysisRequest"
+      original="getDateOfBirthFromAge"
+      ignoreOriginal="True"
+      replacement=".content.analysisrequest.getDateOfBirthFromAge" />
+
+  <!-- Patient Age -->
+  <monkey:patch
+    description="Patient's age"
+    class="bika.lims.content.analysisrequest.AnalysisRequest"
+    original="getAge"
+    ignoreOriginal="True"
+    replacement=".content.analysisrequest.getAge" />
+
+  <!-- Patient Age in ymd format -->
+  <monkey:patch
+      description="Patient's age in ymd format"
+      class="bika.lims.content.analysisrequest.AnalysisRequest"
+      original="getAgeYmd"
+      ignoreOriginal="True"
+      replacement=".content.analysisrequest.getAgeYmd" />
+
+  <!-- Patient Address -->
+  <monkey:patch
+    description="Patient's address"
+    class="bika.lims.content.analysisrequest.AnalysisRequest"
+    original="getPatientAddress"
+    ignoreOriginal="True"
+    replacement=".content.analysisrequest.getPatientAddress" />
+
+</configure>

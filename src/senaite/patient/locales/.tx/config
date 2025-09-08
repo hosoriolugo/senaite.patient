@@ -1,0 +1,8 @@
+[main]
+host = https://www.transifex.com
+
+[o:senaite:p:senaite-patient:r:senaite]
+file_filter = <lang>/LC_MESSAGES/senaite.patient.po
+source_file = senaite.patient.pot
+source_lang = en
+type = PO

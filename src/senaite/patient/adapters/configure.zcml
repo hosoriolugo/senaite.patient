@@ -1,0 +1,57 @@
+<configure
+    xmlns="http://namespaces.zope.org/zope"
+    i18n_domain="senaite.patient">
+
+  <!-- Guard handler for Sample (aka AnalysisRequest) content type -->
+  <adapter
+    for="bika.lims.interfaces.IAnalysisRequest"
+    provides="bika.lims.interfaces.IGuardAdapter"
+    factory=".guards.SampleGuardAdapter"
+    name="senaite.patient.adapter.guard.sample" />
+
+  <!-- Group Key Provider to allow only 1 Patient per Report
+       https://github.com/senaite/senaite.impress/pull/145 -->
+  <adapter factory=".impress.GroupKeyProvider" />
+
+  <!-- Visibility of Gender field -->
+  <adapter
+      factory=".widgetvisibility.GenderFieldVisibility"
+      provides="bika.lims.interfaces.IATWidgetVisibility"
+      for="*"
+      name="senaite.patient.adapter.widgetvisibility.gender" />
+
+  <!-- Dynamic Results Range Adapter
+       Looked up in `abstractroutineanalysis.getResultsRange` -->
+  <adapter
+      for="senaite.patient.interfaces.IRoutineAnalysis"
+      factory=".dynamicresultsrange.PatientDynamicResultsRange"
+      provides="bika.lims.interfaces.IDynamicResultsRange"/>
+  <class class="bika.lims.content.analysis.Analysis">
+    <implements interface="senaite.patient.interfaces.IRoutineAnalysis" />
+  </class>
+
+  <!-- Samples listing with additional filters and columns -->
+  <subscriber
+    for="bika.lims.browser.analysisrequest.AnalysisRequestsView
+         bika.lims.interfaces.IAnalysisRequestsFolder"
+    provides="senaite.app.listing.interfaces.IListingViewAdapter"
+    factory=".listing.SamplesListingAdapter" />
+  <subscriber
+    for="bika.lims.browser.analysisrequest.AnalysisRequestsView
+         bika.lims.interfaces.IClient"
+    provides="senaite.app.listing.interfaces.IListingViewAdapter"
+    factory=".listing.SamplesListingAdapter" />
+  <subscriber
+    for="bika.lims.browser.analysisrequest.AnalysisRequestsView
+         bika.lims.interfaces.IBatch"
+    provides="senaite.app.listing.interfaces.IListingViewAdapter"
+    factory=".listing.SamplesListingAdapter" />
+
+  <!-- Listing adapter for patient samles -->
+  <subscriber
+    for="senaite.patient.browser.patient.samples.SamplesView
+         senaite.patient.interfaces.IPatient"
+    provides="senaite.app.listing.interfaces.IListingViewAdapter"
+    factory=".listing.SamplesListingAdapter" />
+
+</configure>

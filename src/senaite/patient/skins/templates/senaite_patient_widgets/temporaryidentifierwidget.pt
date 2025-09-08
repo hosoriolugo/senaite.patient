@@ -1,0 +1,97 @@
+<html xmlns="http://www.w3.org/1999/xhtml"
+    xmlns:tal="http://xml.zope.org/namespaces/tal"
+    xmlns:metal="http://xml.zope.org/namespaces/metal"
+    xmlns:i18n="http://xml.zope.org/namespaces/i18n"
+    metal:use-macro="here/main_template/macros/master"
+    i18n:domain="senaite.patient">
+  <body>
+
+    <metal:view_macro define-macro="view">
+      <tal:values define="values python:field.getEditAccessor(here)() or {};
+                          session_values python:here.session_restore_value(fieldName, values);
+                          cached_values python:request.get(fieldName, session_values);
+                          patient python:field.get_linked_patient(here);
+                          temporary python:values.get('temporary');
+                          values python:cached_values or values;">
+
+        <a href="#"
+           tal:attributes="href python:patient and patient.absolute_url() or ''"
+           tal:omit-tag="python:patient is None"
+           tal:condition="python:not temporary">
+          <span tal:content="values/value|nothing"/>
+        </a>
+
+        <span tal:condition="python:temporary"
+              tal:content="python: '{} (temp)'.format(values.get('value'))"/>
+
+      </tal:values>
+    </metal:view_macro>
+
+    <metal:edit_macro define-macro="edit">
+
+      <tal:values define="required field/required|nothing;
+                          required python: required and 'required' or None;
+                          error_id python: errors.get(fieldName);">
+
+      <div class="form form-inline field ArchetypesTemporaryIdentifierWidget TemporaryIdentifier"
+          tal:define="values python:field.getEditAccessor(here)() or {};
+                      session_values python:here.session_restore_value(fieldName, values);
+                      value python: values.get('value', values.get('value_auto', ''));
+                      value_auto values/value_auto|string:;
+                      value_temp values/temporary|nothing;
+                      value_temp python:value_temp in ['true','1','on',True,1];
+                      css_class python: value_temp and 'temporary-id' or '';
+                      css_class string:form form-inline field ArchetypesTemporaryIdentifierWidget TemporaryIdentifier ${css_class};
+                      required field/required|nothing;
+                      auto_id_marker field/auto_id_marker;
+                      catalog field/catalog;"
+          tal:attributes="class css_class;
+                          id string:archetypes-fieldname-${fieldName};
+                          data-fieldname string:${fieldName}">
+
+        <!-- Input text field -->
+        <div class="form-group mr-2">
+
+          <!-- QUERYSELECT -->
+          <div class="senaite-queryselect-widget-input"
+               tal:define="widget_attrs python:field.widget.get_input_widget_attributes(context, field, value);"
+               tal:attributes='python:widget_attrs;'>
+            <!-- ReactJS controlled component -->
+          </div>
+        </div>
+
+        <!-- Temporary checkbox -->
+        <div class="form-group">
+          <input type="checkbox" class="mr-1"
+                 tal:attributes="checked value_temp;
+                                 name string:${fieldName}_temporary;
+                                 id string:${fieldName}_temporary"/>
+
+          <label tal:attributes="for string:${fieldName}_temporary"
+                 i18n:translate="">Temporary</label>
+        </div>
+
+        <!-- Auto generated ID -->
+        <input type="hidden"
+               tal:attributes="name string:${fieldName}_value_auto;
+                               value string:${value_auto}"/>
+
+        <!-- Input elements with config options -->
+        <input type="hidden" name="config_catalog"
+               tal:attributes="value string:${catalog}"/>
+        <input type="hidden" name="config_auto_id_marker"
+               tal:attributes="value string:${auto_id_marker}"/>
+      </div>
+
+      <div class="fieldErrorBox" tal:condition="required"></div>
+      <div class="fieldErrorBox" tal:content="error_id" i18n:translate=""></div>
+
+      </tal:values>
+    </metal:edit_macro>
+
+    <metal:search_macro define-macro="search">
+      <div metal:use-macro="context/widgets/string/macros/edit"></div>
+    </metal:search_macro>
+
+</body>
+</html>
