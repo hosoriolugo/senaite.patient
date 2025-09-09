@@ -12,12 +12,6 @@
       factory=".views.PatientAddView"
       name="Patient"/>
 
-  <class class=".views.PatientAddView">
-    <require
-        permission="cmf.AddPortalContent"
-        interface="zope.publisher.interfaces.browser.IBrowserPage"/>
-  </class>
-
   <!-- Edit Patient -->
   <browser:page
       for="senaite.patient.interfaces.IPatient"
