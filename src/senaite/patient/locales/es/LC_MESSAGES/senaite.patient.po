@@ -932,3 +932,8 @@ msgstr "Apellido Materno"
 #: Field description
 msgid "Patient maternal lastname"
 msgstr "Apellido materno del paciente"
+
+#: Field contact
+msgid "Contact"
+msgstr "Contacto - Médico"
+
