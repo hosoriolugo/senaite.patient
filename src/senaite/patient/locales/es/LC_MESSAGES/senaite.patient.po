@@ -104,7 +104,7 @@ msgstr "Fecha de nacimiento"
 
 #: senaite/patient/content/patient.py:434
 msgid "Date of birth cannot be a future date"
-msgstr ""
+msgstr "La fecha de nacimiento no puede ser una fecha futura"
 
 #: senaite/patient/skins/templates/senaite_patient_widgets/agedobwidget.pt:132
 msgid "Days"
@@ -116,7 +116,7 @@ msgstr "Desactivar"
 
 #: senaite/patient/browser/patientfolder.py:113
 msgid "Deceased"
-msgstr ""
+msgstr "Fallecido"
 
 #: senaite/patient/content/patient.py:129
 msgid "Define one or more identifers for this patient"
@@ -164,7 +164,7 @@ msgstr "Nombre completo"
 
 #: senaite/patient/browser/controlpanel.py:260
 msgid "Future dates of birth"
-msgstr ""
+msgstr "Fechas de nacimiento futuras"
 
 #: senaite/patient/browser/patientfolder.py:91
 msgid "Gender"
@@ -205,7 +205,7 @@ msgstr "Seleccione esta casilla si desea que al crear o referenciar pacientes en
 
 #: senaite/patient/browser/controlpanel.py:261
 msgid "If selected, the system will allow the introduction of future dates of birth."
-msgstr ""
+msgstr "Si se selecciona, el sistema permitirá la introducción de fechas de nacimiento futuras."
 
 #: senaite/patient/browser/controlpanel.py:221
 msgid "If selected, users will be able to publish samples that have a Patient assigned with a temporary Medical Record Number (MRN)."
@@ -251,660 +251,661 @@ msgstr "MRN"
 
 #: senaite/patient/browser/controlpanel.py:202
 msgid "Make the MRN field mandatory in the sample registration form and when creating or modifying patients."
-msgstr ""
+msgstr "Hacer obligatorio el campo MRN en el formulario de registro de muestras y al crear o modificar pacientes."
 
 #: senaite/patient/browser/controlpanel.py:170
 msgid "Marital Statuses"
-msgstr ""
+msgstr "Estados civiles"
 
 #: senaite/patient/browser/patientfolder.py:75
 #: senaite/patient/content/analysisrequest.py:66
 msgid "Medical Record #"
-msgstr ""
+msgstr "Nº Historia Clínica"
 
 #: senaite/patient/content/analysisrequest.py:102
 msgid "Middlename"
-msgstr ""
+msgstr "Segundo nombre"
 
 #: senaite/patient/skins/templates/senaite_patient_widgets/agedobwidget.pt:119
 msgid "Months"
-msgstr ""
+msgstr "Meses"
 
 #: senaite/patient/config.py:67
 msgid "National ID"
-msgstr ""
+msgstr "DNI"
 
 #: senaite/patient/browser/patientfolder.py:198
 msgid "No"
-msgstr ""
+msgstr "No"
 
 #: senaite/patient/config.py:66
 msgid "Passport ID"
-msgstr ""
+msgstr "Pasaporte"
 
 #: senaite/patient/adapters/listing.py:54
 #: senaite/patient/profiles/default/types/Patient.xml
 msgid "Patient"
-msgstr ""
+msgstr "Paciente"
 
 #: senaite/patient/config.py:65
 msgid "Patient ID"
-msgstr ""
+msgstr "ID Paciente"
 
 #: senaite/patient/content/patient.py:128
 msgid "Patient Identifiers"
-msgstr ""
+msgstr "Identificadores de Paciente"
 
 #: senaite/patient/adapters/listing.py:134
 msgid "Patient MRN of sample is not equal to %s"
-msgstr ""
+msgstr "El MRN del paciente de la muestra no es igual a %s"
 
 #: senaite/patient/content/patient.py:119
 msgid "Patient Medical Record Number"
-msgstr ""
+msgstr "Número de Historia Clínica del Paciente"
 
 #: senaite/patient/browser/controlpanel.py:505
 #: senaite/patient/profiles/default/controlpanel.xml
 #: senaite/patient/profiles/default/types/PatientFolder.xml
 msgid "Patient Settings"
-msgstr ""
+msgstr "Configuración de Pacientes"
 
 #: senaite/patient/content/patient.py:311
 msgid "Patient birthdate"
-msgstr ""
+msgstr "Fecha de nacimiento del paciente"
 
 #: senaite/patient/content/patient.py:400
 msgid "Patient email is invalid"
-msgstr ""
+msgstr "El email del paciente no es válido"
 
 #: senaite/patient/content/patient.py:152
 msgid "Patient firstname"
-msgstr ""
+msgstr "Nombre del paciente"
 
 #: senaite/patient/adapters/listing.py:140
 msgid "Patient fullname of sample is not equal to %s"
-msgstr ""
+msgstr "El nombre completo del paciente de la muestra no es igual a %s"
 
 #: senaite/patient/content/patient.py:178
 msgid "Patient gender identity"
-msgstr ""
+msgstr "Identidad de género del paciente"
 
 #: senaite/patient/content/patient.py:164
 msgid "Patient lastname"
-msgstr ""
+msgstr "Apellidos del paciente"
 
 #: senaite/patient/content/patient.py:186
 msgid "Patient legally defined marital status"
-msgstr ""
+msgstr "Estado civil legal del paciente"
 
 #: senaite/patient/content/patient.py:158
 msgid "Patient middlename"
-msgstr ""
+msgstr "Segundo nombre del paciente"
 
 #: senaite/patient/content/analysisrequest.py:125
 msgid "Patient name"
-msgstr ""
+msgstr "Nombre del paciente"
 
 #: senaite/patient/browser/controlpanel.py:240
 msgid "Patient name entry mode"
-msgstr ""
+msgstr "Modo de entrada del nombre del paciente"
 
 #: senaite/patient/content/patient.py:170
 msgid "Patient sex at birth"
-msgstr ""
+msgstr "Sexo al nacer del paciente"
 
 #: senaite/patient/browser/controlpanel.py:241
 msgid "Patient's name entry mode in Sample Add form"
-msgstr ""
+msgstr "Modo de entrada del nombre del paciente en el formulario de añadir muestra"
 
 #: senaite/patient/browser/patientfolder.py:68
 #: senaite/patient/profiles/default/types/PatientFolder.xml
 msgid "Patients"
-msgstr ""
+msgstr "Pacientes"
 
 #: senaite/patient/content/analysisrequest.py:140
 msgid "Place of residence"
-msgstr ""
+msgstr "Lugar de residencia"
 
 #: senaite/patient/content/patient.py:391
 msgid "Please set a valid email address first"
-msgstr ""
+msgstr "Por favor, establezca primero una dirección de email válida"
 
 #: senaite/patient/browser/controlpanel.py:179
 msgid "Race and Ethnicity"
-msgstr ""
+msgstr "Raza y Etnia"
 
 #: senaite/patient/browser/controlpanel.py:201
 msgid "Require Medical Record Number (MRN)"
-msgstr ""
+msgstr "Requerir Número de Historia Clínica (MRN)"
 
 #: senaite/patient/validators.py:43
 msgid "Required field: ${title}"
-msgstr ""
+msgstr "Campo requerido: ${title}"
 
 #: senaite/patient/browser/patientfolder.py:89
 #: senaite/patient/content/analysisrequest.py:172
 msgid "Sex"
-msgstr ""
+msgstr "Sexo"
 
 #: senaite/patient/content/analysisrequest.py:173
 msgid "Sex at birth"
-msgstr ""
+msgstr "Sexo al nacer"
 
 #: senaite/patient/browser/controlpanel.py:381
 msgid "Share patient on sample creation"
-msgstr ""
+msgstr "Compartir paciente al crear muestra"
 
 #: senaite/patient/browser/controlpanel.py:189
 msgid "Sharing"
-msgstr ""
+msgstr "Compartición"
 
 #: senaite/patient/skins/templates/senaite_patient_widgets/temporaryidentifierwidget.pt:70
 msgid "Temporary"
-msgstr ""
+msgstr "Temporal"
 
 #: senaite/patient/adapters/listing.py:39
 msgid "Temporary MRN"
-msgstr ""
+msgstr "MRN Temporal"
 
 #: senaite/patient/browser/viewlets/templates/temporary_mrn_viewlet.pt:13
 msgid "The Medical Record Number (MRN) assigned to this sample is temporary"
-msgstr ""
+msgstr "El Número de Historia Clínica (MRN) asignado a esta muestra es temporal"
 
 #: senaite/patient/browser/patientfolder.py:210
 msgid "The birthdate is estimated"
-msgstr ""
+msgstr "La fecha de nacimiento es estimada"
 
 #: senaite/patient/browser/controlpanel.py:69
 msgid "The key will be stored in the database and must be unique"
-msgstr ""
+msgstr "La clave se almacenará en la base de datos y debe ser única"
 
 #: senaite/patient/browser/controlpanel.py:113
 msgid "The value will be displayed in the ethnicity selection"
-msgstr ""
+msgstr "El valor se mostrará en la selección de etnia"
 
 #: senaite/patient/browser/controlpanel.py:77
 msgid "The value will be displayed in the identifers selection"
-msgstr ""
+msgstr "El valor se mostrará en la selección de identificadores"
 
 #: senaite/patient/browser/controlpanel.py:131
 msgid "The value will be displayed in the marital status selection"
-msgstr ""
+msgstr "El valor se mostrará en la selección de estado civil"
 
 #: senaite/patient/browser/controlpanel.py:95
 msgid "The value will be displayed in the race selection"
-msgstr ""
+msgstr "El valor se mostrará en la selección de raza"
 
 #: senaite/patient/browser/controlpanel.py:76
 msgid "Value"
-msgstr ""
+msgstr "Valor"
 
 #: senaite/patient/config.py:69
 msgid "Voter ID"
-msgstr ""
+msgstr "DNI"
 
 #: senaite/patient/browser/controlpanel.py:230
 msgid "When selected, an alert icon is displayed in samples listing for samples that have a Patient assigned with a temporary Medical Record Number (MRN)."
-msgstr ""
+msgstr "Cuando se selecciona, se muestra un icono de alerta en el listado de muestras para aquellas que tienen un paciente asignado con un Número de Historia Clínica (MRN) temporal."
 
 #: senaite/patient/skins/templates/senaite_patient_widgets/agedobwidget.pt:106
 msgid "Years"
-msgstr ""
+msgstr "Años"
 
 #: senaite/patient/browser/patientfolder.py:198
 msgid "Yes"
-msgstr ""
+msgstr "Sí"
 
 #. Default: "Define the format of the patient address in samples. Possible variables are $address, $zip, $city, $country, $subdivision1, $subdivision2, $type."
 #: senaite/patient/browser/controlpanel.py:299
 msgid "description_controlpanel_patient_address_format"
-msgstr ""
+msgstr "Definir el formato de la dirección del paciente en las muestras. Variables posibles: $address, $zip, $city, $country, $subdivision1, $subdivision2, $type."
 
 #. Default: "If selected, months and days won't be displayed in sample view if the age of the patient is greater than one year. In such case, only years will be displayed"
 #: senaite/patient/browser/controlpanel.py:285
 msgid "description_controlpanel_patient_ageyears"
-msgstr ""
+msgstr "Si se selecciona, los meses y días no se mostrarán en la vista de muestra si la edad del paciente es mayor de un año. En ese caso, solo se mostrarán los años"
 
 #. Default: "Patient ethnicity categories"
 #: senaite/patient/browser/controlpanel.py:353
 msgid "description_controlpanel_patient_ethnicities"
-msgstr ""
+msgstr "Categorías de etnia del paciente"
 
 #. Default: "Legally defined marital statuses"
 #: senaite/patient/browser/controlpanel.py:371
 msgid "description_controlpanel_patient_marital_statuses"
-msgstr ""
+msgstr "Estados civiles legalmente definidos"
 
 #. Default: "Patient race categories"
 #: senaite/patient/browser/controlpanel.py:335
 msgid "description_controlpanel_patient_races"
-msgstr ""
+msgstr "Categorías de raza del paciente"
 
 #. Default: "Additional email addresses for this patient"
 #: senaite/patient/content/patient.py:252
 msgid "description_patient_additional_emails"
-msgstr ""
+msgstr "Direcciones de email adicionales para este paciente"
 
 #. Default: "Email address"
 #: senaite/patient/content/schema.py:78
 msgid "description_patient_additional_emails_email"
-msgstr ""
+msgstr "Dirección de email"
 
 #. Default: "Private, Work, Other etc."
 #: senaite/patient/content/schema.py:66
 msgid "description_patient_additional_emails_name"
-msgstr ""
+msgstr "Privado, Trabajo, Otro, etc."
 
 #. Default: "Additional phone numbers for this patient"
 #: senaite/patient/content/patient.py:285
 msgid "description_patient_additional_phone_numbers"
-msgstr ""
+msgstr "Números de teléfono adicionales para este paciente"
 
 #. Default: "Private, Work, Other etc."
 #: senaite/patient/content/schema.py:93
 msgid "description_patient_additional_phone_numbers_name"
-msgstr ""
+msgstr "Privado, Trabajo, Otro, etc."
 
 #. Default: "Phone Number"
 #: senaite/patient/content/schema.py:106
 msgid "description_patient_additional_phone_numbers_phone"
-msgstr ""
+msgstr "Número de teléfono"
 
 #. Default: "Select this option if the patient is deceased"
 #: senaite/patient/content/patient.py:336
 msgid "description_patient_deceased"
-msgstr ""
+msgstr "Seleccione esta opción si el paciente ha fallecido"
 
 #. Default: "Select this option if the patient's date of birth is estimated"
 #: senaite/patient/content/patient.py:323
 msgid "description_patient_estimated_birthdate"
-msgstr ""
+msgstr "Seleccione esta opción si la fecha de nacimiento del paciente es estimada"
 
 #. Default: "General ethnicity category reported by the patient - subject may have more than one"
 #: senaite/patient/content/patient.py:217
 msgid "description_patient_ethnicities"
-msgstr ""
+msgstr "Categoría general de etnia reportada por el paciente - el sujeto puede tener más de una"
 
 #. Default: "The type of identifier that holds the ID"
 #: senaite/patient/content/schema.py:37
 msgid "description_patient_identifiers_key"
-msgstr ""
+msgstr "El tipo de identificador que contiene el ID"
 
 #. Default: "The identification number of the selected identifier"
 #: senaite/patient/content/schema.py:50
 msgid "description_patient_identifiers_value"
-msgstr ""
+msgstr "El número de identificación del identificador seleccionado"
 
 #. Default: "Primary email address for this patient"
 #: senaite/patient/content/patient.py:236
 msgid "description_patient_primary_email"
-msgstr ""
+msgstr "Dirección de email principal para este paciente"
 
 #. Default: "Primary phone number for this patient"
 #: senaite/patient/content/patient.py:270
 msgid "description_patient_primary_phone"
-msgstr ""
+msgstr "Número de teléfono principal para este paciente"
 
 #. Default: "General race category reported by the patient - subject may have more than one"
 #: senaite/patient/content/patient.py:199
 msgid "description_patient_races"
-msgstr ""
+msgstr "Categoría general de raza reportada por el paciente - el sujeto puede tener más de una"
 
 #. Default: "Asked but unknown"
 #: senaite/patient/config.py:127
 msgid "ethnicity_asked_unknown"
-msgstr ""
+msgstr "Preguntado pero desconocido"
 
 #. Default: "Other"
 #: senaite/patient/config.py:128
 msgid "ethnicity_other"
-msgstr ""
+msgstr "Otro"
 
 #. Default: "Unknown"
 #: senaite/patient/config.py:129
 msgid "ethnicity_unknown"
-msgstr ""
+msgstr "Desconocido"
 
 #. Default: "Not defined"
 #: senaite/patient/browser/patientfolder.py:176
 msgid "fullname_not_defined"
-msgstr ""
+msgstr "No definido"
 
 #. Default: "Diverse"
 #: senaite/patient/config.py:44
 msgid "gender_diverse"
-msgstr ""
+msgstr "Diverso"
 
 #. Default: "Man"
 #: senaite/patient/config.py:41
 msgid "gender_man"
-msgstr ""
+msgstr "Hombre"
 
 #. Default: "Not Specified"
 #: senaite/patient/config.py:45
 msgid "gender_not_specified"
-msgstr ""
+msgstr "No especificado"
 
 #. Default: "Transgender"
 #: senaite/patient/config.py:43
 msgid "gender_trans"
-msgstr ""
+msgstr "Transgénero"
 
 #. Default: "Woman"
 #: senaite/patient/config.py:42
 msgid "gender_woman"
-msgstr ""
+msgstr "Mujer"
 
 #. Default: "Patient Medical Record Number is required"
 #: senaite/patient/content/patient.py:359
 msgid "invalid_patient_mrn_is_required"
-msgstr ""
+msgstr "El Número de Historia Clínica del paciente es requerido"
 
 #. Default: "Patient Medical Record Number must be unique"
 #: senaite/patient/content/patient.py:368
 msgid "invalid_patient_mrn_must_be_unique"
-msgstr ""
+msgstr "El Número de Historia Clínica del paciente debe ser único"
 
 #. Default: "Address Format"
 #: senaite/patient/browser/controlpanel.py:296
 msgid "label_controlpanel_patient_address_format"
-msgstr ""
+msgstr "Formato de Dirección"
 
 #. Default: "Age in years"
 #: senaite/patient/browser/controlpanel.py:282
 msgid "label_controlpanel_patient_ageyears"
-msgstr ""
+msgstr "Edad en años"
 
 #. Default: "Ethnicities"
 #: senaite/patient/browser/controlpanel.py:350
 msgid "label_controlpanel_patient_ethnicities"
-msgstr ""
+msgstr "Etnias"
 
 #. Default: "Marital Statuses"
 #: senaite/patient/browser/controlpanel.py:368
 msgid "label_controlpanel_patient_marital_statuses"
-msgstr ""
+msgstr "Estados Civiles"
 
 #. Default: "Races"
 #: senaite/patient/browser/controlpanel.py:332
 msgid "label_controlpanel_patient_races"
-msgstr ""
+msgstr "Razas"
 
 #. Default: "Firstname"
 #: senaite/patient/skins/templates/senaite_patient_widgets/fullnamewidget.pt:62
 msgid "label_firstname"
-msgstr ""
+msgstr "Nombre"
 
 #. Default: "Lastname"
 #: senaite/patient/skins/templates/senaite_patient_widgets/fullnamewidget.pt:90
 msgid "label_lastname"
-msgstr ""
+msgstr "Apellidos"
 
 #. Default: "Middlename"
 #: senaite/patient/skins/templates/senaite_patient_widgets/fullnamewidget.pt:73
 msgid "label_middlename"
-msgstr ""
+msgstr "Segundo nombre"
 
 #. Default: "Additional Email Addresses"
 #: senaite/patient/content/patient.py:249
 msgid "label_patient_additional_emails"
-msgstr ""
+msgstr "Direcciones de Email Adicionales"
 
 #. Default: "Email"
 #: senaite/patient/content/schema.py:74
 msgid "label_patient_additional_emails_email"
-msgstr ""
+msgstr "Email"
 
 #. Default: "Name"
 #: senaite/patient/content/schema.py:62
 msgid "label_patient_additional_emails_name"
-msgstr ""
+msgstr "Nombre"
 
 #. Default: "Additional Phone Numbers"
 #: senaite/patient/content/patient.py:283
 msgid "label_patient_additional_phone_numbers"
-msgstr ""
+msgstr "Números de Teléfono Adicionales"
 
 #. Default: "Name"
 #: senaite/patient/content/schema.py:89
 msgid "label_patient_additional_phone_numbers_name"
-msgstr ""
+msgstr "Nombre"
 
 #. Default: "Phone"
 #: senaite/patient/content/schema.py:102
 msgid "label_patient_additional_phone_numbers_phone"
-msgstr ""
+msgstr "Teléfono"
 
 #. Default: "Birthdate"
 #: senaite/patient/content/patient.py:310
 msgid "label_patient_birthdate"
-msgstr ""
+msgstr "Fecha de Nacimiento"
 
 #. Default: "Deceased"
 #: senaite/patient/content/patient.py:333
 msgid "label_patient_deceased"
-msgstr ""
+msgstr "Fallecido"
 
 #. Default: "Email results report"
 #: senaite/patient/content/patient.py:141
 msgid "label_patient_email_report"
-msgstr ""
+msgstr "Enviar informe de resultados por email"
 
 #. Default: "Birthdate is estimated"
 #: senaite/patient/content/patient.py:319
 msgid "label_patient_estimated_birthdate"
-msgstr ""
+msgstr "La fecha de nacimiento es estimada"
 
 #. Default: "Ethnicities"
 #: senaite/patient/content/patient.py:216
 msgid "label_patient_ethnicities"
-msgstr ""
+msgstr "Etnias"
 
 #. Default: "Ethnicity"
 #: senaite/patient/content/schema.py:131
 msgid "label_patient_ethnicity"
-msgstr ""
+msgstr "Etnia"
 
 #. Default: "Firstname"
 #: senaite/patient/content/patient.py:151
 msgid "label_patient_firstname"
-msgstr ""
+msgstr "Nombre"
 
 #. Default: "Gender Identity"
 #: senaite/patient/content/patient.py:177
 msgid "label_patient_gender"
-msgstr ""
+msgstr "Identidad de Género"
 
 #. Default: "Type"
 #: senaite/patient/content/schema.py:33
 msgid "label_patient_identifiers_key"
-msgstr ""
+msgstr "Tipo"
 
 #. Default: "ID"
 #: senaite/patient/content/schema.py:46
 msgid "label_patient_identifiers_value"
-msgstr ""
+msgstr "ID"
 
 #. Default: "Lastname"
 #: senaite/patient/content/patient.py:163
 msgid "label_patient_lastname"
-msgstr ""
+msgstr "Apellidos"
 
 #. Default: "Marital Status"
 #: senaite/patient/content/patient.py:185
 msgid "label_patient_marital_status"
-msgstr ""
+msgstr "Estado Civil"
 
 #. Default: "Middlename"
 #: senaite/patient/content/patient.py:157
 msgid "label_patient_middlename"
-msgstr ""
+msgstr "Segundo nombre"
 
 #. Default: "Medical Record #"
 #: senaite/patient/content/patient.py:118
 msgid "label_patient_mrn"
-msgstr ""
+msgstr "Nº Historia Clínica"
 
 #. Default: "Primary Phone Number"
 #: senaite/patient/content/patient.py:267
 msgid "label_patient_primary_phone"
-msgstr ""
+msgstr "Número de Teléfono Principal"
 
 #. Default: "Race"
 #: senaite/patient/content/schema.py:118
 msgid "label_patient_race"
-msgstr ""
+msgstr "Raza"
 
 #. Default: "Races"
 #: senaite/patient/content/patient.py:198
 msgid "label_patient_races"
-msgstr ""
+msgstr "Razas"
 
 #. Default: "Sex"
 #: senaite/patient/content/patient.py:169
 msgid "label_patient_sex"
-msgstr ""
+msgstr "Sexo"
 
 #. Default: "Primary Email Address"
 #: senaite/patient/content/patient.py:232
 msgid "label_primary_patient_email"
-msgstr ""
+msgstr "Dirección de Email Principal"
 
 #. Default: "Personal"
 #: senaite/patient/browser/patient/views.py:51
 msgid "label_schema_personal"
-msgstr ""
+msgstr "Personal"
 
 #. Default: "Annulled"
 #: senaite/patient/config.py:135
 msgid "marital_annulled"
-msgstr ""
+msgstr "Anulado"
 
 #. Default: "Common Law"
 #: senaite/patient/config.py:140
 msgid "marital_common_law"
-msgstr ""
+msgstr "Unión de Hecho"
 
 #. Default: "Divorced"
 #: senaite/patient/config.py:136
 msgid "marital_divorced"
-msgstr ""
+msgstr "Divorciado"
 
 #. Default: "Domestic partner"
 #: senaite/patient/config.py:142
 msgid "marital_domestic_partner"
-msgstr ""
+msgstr "Pareja de Hecho"
 
 #. Default: "Interlocutory"
 #: senaite/patient/config.py:137
 msgid "marital_interlocutory"
-msgstr ""
+msgstr "Interlocutorio"
 
 #. Default: "Legally Separated"
 #: senaite/patient/config.py:138
 msgid "marital_legally_separated"
-msgstr ""
+msgstr "Legalmente Separado"
 
 #. Default: "Married"
 #: senaite/patient/config.py:139
 msgid "marital_married"
-msgstr ""
+msgstr "Casado"
 
 #. Default: "Never Married"
 #: senaite/patient/config.py:144
 msgid "marital_never_married"
-msgstr ""
+msgstr "Soltero"
 
 #. Default: "Polygamous"
 #: senaite/patient/config.py:141
 msgid "marital_polygamous"
-msgstr ""
+msgstr "Polígamo"
 
 #. Default: "Unknown"
 #: senaite/patient/config.py:146
 msgid "marital_unknown"
-msgstr ""
+msgstr "Desconocido"
 
 #. Default: "Unmarried"
 #: senaite/patient/config.py:143
 msgid "marital_unmarried"
-msgstr ""
+msgstr "No Casado"
 
 #. Default: "Widowed"
 #: senaite/patient/config.py:145
 msgid "marital_widowed"
-msgstr ""
+msgstr "Viudo"
 
 #. Default: "Not defined"
 #: senaite/patient/browser/patientfolder.py:165
 msgid "mrn_not_defined"
-msgstr ""
+msgstr "No definido"
 
 #. Default: "First + last"
 #: senaite/patient/config.py:53
 msgid "name_entry_mode_first_last"
-msgstr ""
+msgstr "Nombre + Apellidos"
 
 #. Default: "First + middle + last"
 #: senaite/patient/config.py:49
 msgid "name_entry_mode_first_middle_last"
-msgstr ""
+msgstr "Nombre + Segundo nombre + Apellidos"
 
 #. Default: "Fullname"
 #: senaite/patient/config.py:57
 msgid "name_entry_mode_fullname"
-msgstr ""
+msgstr "Nombre completo"
 
 #. Default: "Days"
 #: senaite/patient/skins/templates/senaite_patient_widgets/agedobwidget.pt:38
 msgid "patient_dob_days"
-msgstr ""
+msgstr "Días"
 
 #. Default: "Months"
 #: senaite/patient/skins/templates/senaite_patient_widgets/agedobwidget.pt:34
 msgid "patient_dob_months"
-msgstr ""
+msgstr "Meses"
 
 #. Default: "Years"
 #: senaite/patient/skins/templates/senaite_patient_widgets/agedobwidget.pt:30
 msgid "patient_dob_years"
-msgstr ""
+msgstr "Años"
 
 #. Default: "${fullname} <sup>&dagger;</sup>"
 #: senaite/patient/browser/patientfolder.py:183
 msgid "patient_fullname_deceased_html"
-msgstr ""
+msgstr "${fullname} <sup>&dagger;</sup>"
 
 #: senaite/patient/skins/templates/senaite_patient_widgets/fullnamewidget.pt:103
 msgid "placeholder"
-msgstr ""
+msgstr "placeholder"
 
 #. Default: "Asked but unknown"
 #: senaite/patient/config.py:80
 msgid "race_asked_unknown"
-msgstr ""
+msgstr "Preguntado pero desconocido"
 
 #. Default: "Unknown"
 #: senaite/patient/config.py:81
 msgid "race_unknown"
-msgstr ""
+msgstr "Desconocido"
 
 #. Default: "Female"
 #: senaite/patient/config.py:36
 msgid "sex_female"
-msgstr ""
+msgstr "Femenino"
 
 #. Default: "Male"
 #: senaite/patient/config.py:35
 msgid "sex_male"
-msgstr ""
+msgstr "Masculino"
 
 #. Default: "Not specified"
 #: senaite/patient/config.py:37
 msgid "sex_not_specified"
-msgstr ""
+msgstr "No especificado"
 
 #. Default: "Samples of ${patient_fullname}"
 #: senaite/patient/browser/patient/samples.py:36
 msgid "title_patient_samples_listing"
-msgstr ""
+msgstr "Muestras de ${patient_fullname}"
+
