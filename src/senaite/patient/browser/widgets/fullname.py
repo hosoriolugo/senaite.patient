@@ -27,14 +27,14 @@ from Products.Archetypes.Widget import TypesWidget
 
 class FullnameWidget(TypesWidget):
     """A widget for the introduction of person name, either fullname or the
-    combination of firstname + lastname
+    combination of firstname + lastname + maternal_lastname
     """
     security = ClassSecurityInfo()
     _properties = TypesWidget._properties.copy()
     _properties.update({
         "macro": "senaite_patient_widgets/fullnamewidget",
         "entry_mode": "parts",
-        "view_format": "%(firstname)s %(middlename)s %(lastname)s",
+        "view_format": "%(firstname)s %(middlename)s %(lastname)s %(maternal_lastname)s",
         "size": "15",
     })
 
@@ -45,6 +45,7 @@ class FullnameWidget(TypesWidget):
         firstname = ""
         middlename = ""
         lastname = ""
+        maternal_lastname = ""
 
         if isinstance(value, (list, tuple)):
             value = value[0] or None
@@ -57,15 +58,17 @@ class FullnameWidget(TypesWidget):
             firstname = value.get("firstname", "").strip()
             middlename = value.get("middlename", "").strip()
             lastname = value.get("lastname", "").strip()
+            maternal_lastname = value.get("maternal_lastname", "").strip()
 
         # Allow non-required fields
-        if not any([firstname, lastname]):
+        if not any([firstname, lastname, maternal_lastname]):
             return None, {}
 
         output = {
             "firstname": firstname,
             "middlename": middlename,
             "lastname": lastname,
+            "maternal_lastname": maternal_lastname,
         }
         return output, {}
 
