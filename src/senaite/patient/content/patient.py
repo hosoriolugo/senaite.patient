@@ -461,26 +461,32 @@ class Patient(Container):
     security = ClassSecurityInfo()
 
     def calculate_age(self, birthdate, on_date=None):
-        """Calculate age from birthdate to a specific date"""
+        """Calculate age from birthdate to a specific date - Python 2.7 compatible"""
         if not on_date:
             on_date = datetime.now().date()
         if not birthdate:
             return ""
+        
+        # Usar relativedelta para calcular la edad
         age = relativedelta(on_date, birthdate)
+        
+        # Formato compatible con Python 2.7
         if age.years > 0:
-            return f"{age.years} años"
+            return "{} años".format(age.years)
         elif age.months > 0:
-            return f"{age.months} meses"
+            return "{} meses".format(age.months)
         else:
-            return f"{age.days} días"
+            return "{} días".format(age.days)
 
     @security.protected(permissions.View)
     def getAge(self):
+        """Returns the age with the field accessor"""
         accessor = self.accessor("age")
         return accessor(self) or ""
 
     @security.protected(permissions.ModifyPortalContent)
     def setAge(self, value):
+        """Set age by the field mutator"""
         mutator = self.mutator("age")
         mutator(self, value)
 
@@ -803,11 +809,13 @@ class Patient(Container):
         """Set birthdate by the field accessor and update age"""
         mutator = self.mutator("birthdate")
         result = mutator(self, value)
-        # Calculate and set age
+        
+        # Calculate and set age after updating birthdate
         birthdate = self.getBirthdate()
         if birthdate:
             age = self.calculate_age(birthdate)
             self.setAge(age)
+        
         return result
 
     @security.protected(permissions.View)
