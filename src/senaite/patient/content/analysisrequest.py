@@ -24,6 +24,7 @@ from archetypes.schemaextender.interfaces import ISchemaModifier
 from bika.lims.browser.widgets import SelectionWidget
 from bika.lims.interfaces import IAnalysisRequest
 from Products.Archetypes.Widget import TextAreaWidget
+from Products.Archetypes.Widget import StringWidget
 from Products.CMFCore.permissions import View
 from senaite.patient import messageFactory as _
 from senaite.patient.api import get_patient_name_entry_mode
@@ -47,6 +48,8 @@ from senaite.patient.permissions import FieldEditFullName
 from senaite.patient.permissions import FieldEditGender
 from senaite.patient.permissions import FieldEditMRN
 from senaite.patient.permissions import FieldEditSex
+from senaite.patient.permissions import FieldEditPatientWeight
+from senaite.patient.permissions import FieldEditPatientRoom
 from senaite.patient.validators import TemporaryIdentifierValidator
 from zope.component import adapts
 from zope.interface import implementer
@@ -92,22 +95,22 @@ MedicalRecordNumberField = TemporaryIdentifierField(
                 "label": _(u"MRN"),
             }, {
                 "name": "firstname",
-                "width": "20",
+                "width": "15",
                 "align": "left",
                 "label": _(u"Firstname"),
             }, {
                 "name": "middlename",
-                "width": "20",
+                "width": "15",
                 "align": "left",
                 "label": _(u"Middlename"),
             }, {
                 "name": "lastname",
-                "width": "20",
+                "width": "15",
                 "align": "left",
                 "label": _(u"Lastname"),
             }, {
                 "name": "maternal_lastname",
-                "width": "20",
+                "width": "15",
                 "align": "left",
                 "label": _(u"Maternal Lastname"),
             }, {
@@ -199,6 +202,39 @@ GenderField = ExtStringField(
     ),
 )
 
+# Nuevos campos agregados
+PatientWeightField = ExtStringField(
+    "PatientWeight",
+    required=False,
+    read_permission=View,
+    write_permission=FieldEditPatientWeight,
+    widget=StringWidget(
+        label=_("Patient Weight"),
+        description=_("Patient weight in kilograms"),
+        render_own_label=True,
+        visible={
+            "add": "edit",
+            "secondary": "disabled",
+        }
+    )
+)
+
+PatientRoomField = ExtStringField(
+    "PatientRoom",
+    required=False,
+    read_permission=View,
+    write_permission=FieldEditPatientRoom,
+    widget=StringWidget(
+        label=_("Patient Room"),
+        description=_("Patient room number or identifier"),
+        render_own_label=True,
+        visible={
+            "add": "edit",
+            "secondary": "disabled",
+        }
+    )
+)
+
 
 @implementer(IOrderableSchemaExtender, IBrowserLayerAwareExtender)
 class AnalysisRequestSchemaExtender(object):
@@ -221,6 +257,8 @@ class AnalysisRequestSchemaExtender(object):
             dob_field,
             SexField,
             GenderField,
+            PatientWeightField,  # Nuevo campo agregado
+            PatientRoomField,    # Nuevo campo agregado
         ]
 
 
