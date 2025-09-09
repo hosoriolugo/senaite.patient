@@ -25,7 +25,7 @@ from AccessControl import ClassSecurityInfo
 from bika.lims import api
 from bika.lims.api.mail import is_valid_email_address
 from datetime import datetime
-from dateutil.relativedelta import relativedelta  # Añadir esta importación
+from dateutil.relativedelta import relativedelta
 from plone.autoform import directives
 from plone.supermodel import model
 from plone.supermodel.directives import fieldset
@@ -116,13 +116,6 @@ class IPatientSchema(model.Schema):
         label=u"Address",
         fields=["address"])
 
-    # demographics fieldset (destacado) - añadimos aquí la edad para que se muestre
-    fieldset(
-        "demographics",
-        label=u"Demographics",
-        fields=["birthdate", "estimated_birthdate", "age", "deceased"]
-    )
-
     # Default
 
     mrn = schema.TextLine(
@@ -204,6 +197,53 @@ class IPatientSchema(model.Schema):
         source="senaite.patient.vocabularies.marital_statuses",
         default="UNK",
         required=True,
+    )
+
+    # Campos de fecha de nacimiento y edad (en la pestaña principal)
+    directives.widget("birthdate",
+                      DatetimeWidget,
+                      show_time=False)
+    birthdate = DatetimeField(
+        title=_(u"label_patient_birthdate", default=u"Birthdate"),
+        description=_(u"Patient birthdate"),
+        required=False,
+    )
+    # XXX core's DateTimeWidget relies on field's get_max function if not 'max'
+    #     property is explicitly set to the widget
+    birthdate.get_max = get_max_birthdate
+
+    estimated_birthdate = schema.Bool(
+        title=_(
+            u"label_patient_estimated_birthdate",
+            default=u"Birthdate is estimated"
+        ),
+        description=_(
+            u"description_patient_estimated_birthdate",
+            default=u"Select this option if the patient's date of birth is "
+                    u"estimated"
+        ),
+        default=False,
+        required=False,
+    )
+
+    # Campo edad calculada (visible)
+    directives.widget("age", TextWidget)
+    age = schema.TextLine(
+        title=_(u"Age"),
+        description=_(u"Calculated age based on date of birth"),
+        required=False,
+        readonly=True,
+    )
+
+    deceased = schema.Bool(
+        title=_(
+            u"label_patient_deceased",
+            default=u"Deceased"),
+        description=_(
+            u"description_patient_deceased",
+            default=u"Select this option if the patient is deceased"),
+        required=False,
+        default=False,
     )
 
     directives.widget(
@@ -318,52 +358,6 @@ class IPatientSchema(model.Schema):
             POSTAL_ADDRESS,
             OTHER_ADDRESS,
         ]
-    )
-
-    directives.widget("birthdate",
-                      DatetimeWidget,
-                      show_time=False)
-    birthdate = DatetimeField(
-        title=_(u"label_patient_birthdate", default=u"Birthdate"),
-        description=_(u"Patient birthdate"),
-        required=False,
-    )
-    # XXX core's DateTimeWidget relies on field's get_max function if not 'max'
-    #     property is explicitly set to the widget
-    birthdate.get_max = get_max_birthdate
-
-    estimated_birthdate = schema.Bool(
-        title=_(
-            u"label_patient_estimated_birthdate",
-            default=u"Birthdate is estimated"
-        ),
-        description=_(
-            u"description_patient_estimated_birthdate",
-            default=u"Select this option if the patient's date of birth is "
-                    u"estimated"
-        ),
-        default=False,
-        required=False,
-    )
-
-    deceased = schema.Bool(
-        title=_(
-            u"label_patient_deceased",
-            default=u"Deceased"),
-        description=_(
-            u"description_patient_deceased",
-            default=u"Select this option if the patient is deceased"),
-        required=False,
-        default=False,
-    )
-
-    # Campo edad calculada (visible y destacado)
-    directives.widget("age", TextWidget)
-    age = schema.TextLine(
-        title=_(u"Age"),
-        description=_(u"Calculated age based on date of birth"),
-        required=False,
-        readonly=True,
     )
 
     @invariant
