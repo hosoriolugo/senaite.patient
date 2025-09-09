@@ -1,6 +1,7 @@
+
 <html xmlns="http://www.w3.org/1999/xhtml"
       xmlns:tal="http://xml.zope.org/namespaces/tal"
-      xmlns:metal="http://namespaces.metal.org/metal"
+      xmlns:metal="http://xml.zope.org/namespaces/metal"
       xmlns:i18n="http://xml.zope.org/namespaces/i18n"
       metal:use-macro="here/main_template/macros/master"
       i18n:domain="senaite.patient">
@@ -11,8 +12,7 @@
                           firstname python:value.get('firstname', '');
                           middlename python:value.get('middlename', '');
                           lastname python:value.get('lastname', '');
-                          maternal_lastname python:value.get('maternal_lastname', '');
-                          fullname python:filter(None, [firstname, middlename , lastname, maternal_lastname]);
+                          fullname python:filter(None, [firstname, middlename , lastname]);
                           fullname python:' '.join(fullname).strip();
                           entry_mode python:field.widget.entry_mode or 'parts';
                           view_format python:field.widget.view_format;
@@ -36,14 +36,12 @@
                           firstname python: value.get('firstname', '');
                           middlename python: value.get('middlename', '');
                           lastname python: value.get('lastname', '');
-                          maternal_lastname python: value.get('maternal_lastname', '');
-                          fullname python: filter(None, [firstname, middlename, lastname, maternal_lastname]);
+                          fullname python: filter(None, [firstname, middlename, lastname]);
                           fullname python: ' '.join(fullname).strip();
 
                           subfield_firstname string:${fieldName}.firstname:ignore_empty:record;
                           subfield_middlename string:${fieldName}.middlename:ignore_empty:record;
                           subfield_lastname string:${fieldName}.lastname:ignore_empty:record;
-                          subfield_maternal_lastname string:${fieldName}.maternal_lastname:ignore_empty:record;
 
                           required field/required|nothing;
                           required python: required and 'required' or None;
@@ -59,7 +57,7 @@
                     data-fieldname string:${fieldName}">
           <div class="fieldErrorBox" tal:condition="required"></div>
 
-          <!-- Firstname + lastname + maternal_lastname input area -->
+          <!-- Firstname + lastname input area -->
           <div class="input-group d-flex d-inline-flex w-auto" tal:condition="not:fullname_mode">
             <!-- Firstname -->
             <input type="text"
@@ -98,17 +96,6 @@
                    tal:attributes="id string:${subfield_lastname};
                                    name string:${subfield_lastname};
                                    value lastname;
-                                   required required;"/>
-
-            <!-- Maternal Lastname -->
-            <input type="text"
-                   title="Maternal Lastname"
-                   class="form-control form-control-sm mb-1"
-                   placeholder="Maternal Lastname"
-                   i18n:attributes="placeholder label_maternal_lastname"
-                   tal:attributes="id string:${subfield_maternal_lastname};
-                                   name string:${subfield_maternal_lastname};
-                                   value maternal_lastname;
                                    required required;"/>
           </div>
 
