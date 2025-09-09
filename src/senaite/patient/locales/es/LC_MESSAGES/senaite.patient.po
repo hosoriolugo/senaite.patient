@@ -152,7 +152,7 @@ msgstr "Configuración de los campos"
 
 #: senaite/patient/content/analysisrequest.py:97
 msgid "Firstname"
-msgstr "Nombre"
+msgstr "Primer nombre"
 
 #: senaite/patient/browser/patientfolder.py:96
 msgid "Folder"
@@ -238,7 +238,7 @@ msgstr "La clave no es única"
 
 #: senaite/patient/content/analysisrequest.py:107
 msgid "Lastname"
-msgstr "Apellidos"
+msgstr "Primer apellido"
 
 #: senaite/patient/browser/controlpanel.py:316
 msgid "List of identifiers that can be selected for a patient."
@@ -319,7 +319,7 @@ msgstr "El email del paciente no es válido"
 
 #: senaite/patient/content/patient.py:152
 msgid "Patient firstname"
-msgstr "Nombre del paciente"
+msgstr "Primer nombre del paciente"
 
 #: senaite/patient/adapters/listing.py:140
 msgid "Patient fullname of sample is not equal to %s"
@@ -331,7 +331,7 @@ msgstr "Identidad de género del paciente"
 
 #: senaite/patient/content/patient.py:164
 msgid "Patient lastname"
-msgstr "Apellidos del paciente"
+msgstr "Apellido paterno del paciente"
 
 #: senaite/patient/content/patient.py:186
 msgid "Patient legally defined marital status"
@@ -633,12 +633,12 @@ msgstr "Razas"
 #. Default: "Firstname"
 #: senaite/patient/skins/templates/senaite_patient_widgets/fullnamewidget.pt:62
 msgid "label_firstname"
-msgstr "Nombre"
+msgstr "Primer nombre"
 
 #. Default: "Lastname"
 #: senaite/patient/skins/templates/senaite_patient_widgets/fullnamewidget.pt:90
 msgid "label_lastname"
-msgstr "Apellidos"
+msgstr "Apellido Paterno"
 
 #. Default: "Middlename"
 #: senaite/patient/skins/templates/senaite_patient_widgets/fullnamewidget.pt:73
@@ -708,7 +708,7 @@ msgstr "Etnia"
 #. Default: "Firstname"
 #: senaite/patient/content/patient.py:151
 msgid "label_patient_firstname"
-msgstr "Nombre"
+msgstr "Primer nombre"
 
 #. Default: "Gender Identity"
 #: senaite/patient/content/patient.py:177
@@ -728,7 +728,7 @@ msgstr "ID"
 #. Default: "Lastname"
 #: senaite/patient/content/patient.py:163
 msgid "label_patient_lastname"
-msgstr "Apellidos"
+msgstr "Apellido Paterno"
 
 #. Default: "Marital Status"
 #: senaite/patient/content/patient.py:185
@@ -932,8 +932,3 @@ msgstr "Apellido Materno"
 #: Field description
 msgid "Patient maternal lastname"
 msgstr "Apellido materno del paciente"
-
-#: Field contact
-msgid "Contact"
-msgstr "Contacto - Médico"
-
