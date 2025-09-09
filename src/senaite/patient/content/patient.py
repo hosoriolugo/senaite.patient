@@ -24,6 +24,7 @@ from AccessControl import ClassSecurityInfo
 from bika.lims import api
 from bika.lims.api.mail import is_valid_email_address
 from datetime import datetime
+from dateutil.relativedelta import relativedelta  # Añadir esta importación
 from plone.autoform import directives
 from plone.supermodel import model
 from plone.supermodel.directives import fieldset
@@ -346,6 +347,14 @@ class IPatientSchema(model.Schema):
         default=False,
     )
 
+    # Añadir campo de edad calculada
+    age = schema.TextLine(
+        title=_(u"Age"),
+        description=_(u"Calculated age based on date of birth"),
+        required=False,
+        readonly=True,
+    )
+
     @invariant
     def validate_mrn(data):
         """Checks if the patient MRN # is unique
@@ -450,6 +459,30 @@ class Patient(Container):
     _catalogs = [PATIENT_CATALOG]
 
     security = ClassSecurityInfo()
+
+    def calculate_age(self, birthdate, on_date=None):
+        """Calculate age from birthdate to a specific date"""
+        if not on_date:
+            on_date = datetime.now().date()
+        if not birthdate:
+            return ""
+        age = relativedelta(on_date, birthdate)
+        if age.years > 0:
+            return f"{age.years} años"
+        elif age.months > 0:
+            return f"{age.months} meses"
+        else:
+            return f"{age.days} días"
+
+    @security.protected(permissions.View)
+    def getAge(self):
+        accessor = self.accessor("age")
+        return accessor(self) or ""
+
+    @security.protected(permissions.ModifyPortalContent)
+    def setAge(self, value):
+        mutator = self.mutator("age")
+        mutator(self, value)
 
     @security.protected(permissions.View)
     def Title(self):
@@ -767,10 +800,15 @@ class Patient(Container):
 
     @security.protected(permissions.ModifyPortalContent)
     def setBirthdate(self, value):
-        """Set birthdate by the field accessor
-        """
+        """Set birthdate by the field accessor and update age"""
         mutator = self.mutator("birthdate")
-        return mutator(self, value)
+        result = mutator(self, value)
+        # Calculate and set age
+        birthdate = self.getBirthdate()
+        if birthdate:
+            age = self.calculate_age(birthdate)
+            self.setAge(age)
+        return result
 
     @security.protected(permissions.View)
     def getAddress(self):
