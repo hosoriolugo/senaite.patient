@@ -3,6 +3,10 @@
     xmlns:browser="http://namespaces.zope.org/browser"
     xmlns:plone="http://namespaces.plone.org/plone">
 
+  <!-- Import permissions -->
+  <include package="senaite.core.permissions" />
+  <include file="../../permissions.zcml" />
+
   <!-- Add Patient view and form - invoked from ++add++ traverser -->
   <adapter
       for="Products.CMFCore.interfaces.IFolderish
