@@ -18,6 +18,7 @@
 # Copyright 2020-2025 by it's authors.
 # Some rights reserved, see README and LICENSE.
 
+# -*- coding: utf-8 -*-
 from string import Template
 
 from AccessControl import ClassSecurityInfo
@@ -28,6 +29,8 @@ from dateutil.relativedelta import relativedelta  # Añadir esta importación
 from plone.autoform import directives
 from plone.supermodel import model
 from plone.supermodel.directives import fieldset
+from plone.autoform import directives as autoform_directives
+from z3c.form.browser.text import TextWidget
 from Products.CMFCore import permissions
 from senaite.core.api import dtime
 from senaite.core.behaviors import IClientShareable
@@ -112,6 +115,13 @@ class IPatientSchema(model.Schema):
         "address",
         label=u"Address",
         fields=["address"])
+
+    # demographics fieldset (destacado) - añadimos aquí la edad para que se muestre
+    fieldset(
+        "demographics",
+        label=u"Demographics",
+        fields=["birthdate", "estimated_birthdate", "age", "deceased"]
+    )
 
     # Default
 
@@ -347,7 +357,8 @@ class IPatientSchema(model.Schema):
         default=False,
     )
 
-    # Añadir campo de edad calculada
+    # Campo edad calculada (visible y destacado)
+    directives.widget("age", TextWidget)
     age = schema.TextLine(
         title=_(u"Age"),
         description=_(u"Calculated age based on date of birth"),
@@ -480,9 +491,31 @@ class Patient(Container):
 
     @security.protected(permissions.View)
     def getAge(self):
-        """Returns the age with the field accessor"""
+        """Returns the age with the field accessor.
+        If age is empty but birthdate exists, calculate it and try to save it.
+        """
         accessor = self.accessor("age")
-        return accessor(self) or ""
+        age = accessor(self) or ""
+
+        if not age:
+            # obtain birthdate as a plain date (getBirthdate by default returns date)
+            birthdate = self.getBirthdate()
+            if birthdate:
+                # calculate
+                try:
+                    age = self.calculate_age(birthdate)
+                except Exception:
+                    age = ""
+                # try to persist; wrap in try/except because view may run
+                # under users without Modify permission
+                if age:
+                    try:
+                        self.setAge(age)
+                    except Exception:
+                        # no-op: avoid breaking read access if save fails
+                        pass
+
+        return age
 
     @security.protected(permissions.ModifyPortalContent)
     def setAge(self, value):
@@ -513,8 +546,7 @@ class Patient(Container):
             raise ValueError("Value is missing or empty")
 
         if not isinstance(value, string_types):
-            raise ValueError("Type is not supported: {}".format(repr(value)))
-
+            value = u""
         value = value.strip()
         accessor = self.accessor("mrn")
         if accessor(self) == api.safe_unicode(value):
@@ -814,7 +846,11 @@ class Patient(Container):
         birthdate = self.getBirthdate()
         if birthdate:
             age = self.calculate_age(birthdate)
-            self.setAge(age)
+            try:
+                self.setAge(age)
+            except Exception:
+                # If saving fails (permissions), ignore to avoid breaking the flow
+                pass
         
         return result
 
@@ -875,3 +911,4 @@ class Patient(Container):
         """
         mutator = self.mutator("estimated_birthdate")
         return mutator(self, value)
+
