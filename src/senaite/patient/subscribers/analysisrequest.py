@@ -45,9 +45,6 @@ def on_object_created(instance, event):
     if api.get_registry_record(reg_key, default=False):
         client_uid = api.get_uid(instance.getClient())
         behavior = IClientShareableBehavior(patient)
-        # Note we get Raw clients because if current user is a Client, she/he
-        # does not have enough privileges to wake-up clients other than the one
-        # she/he belongs to. Still, we need to keep the rest of shared clients
         client_uids = behavior.getRawClients() or []
         if client_uid not in client_uids:
             client_uids.append(client_uid)
@@ -59,42 +56,42 @@ def on_object_edited(instance, event):
     """Event handler when a sample was edited
     """
     update_patient(instance)
-    # update results ranges so dynamic specs are recalculated
     update_results_ranges(instance)
 
 
 def add_cc_email(sample, email):
     """add CC email recipient to sample
     """
-    # get existing CC emails
     emails = sample.getCCEmails().split(",")
-    # nothing to do
     if email in emails:
         return
     emails.append(email)
-    # remove whitespaces
     emails = map(lambda e: e.strip(), emails)
     sample.setCCEmails(",".join(emails))
 
 
 def update_patient(instance):
+    """Ensure patient is created/updated from the AR
+    """
+    # 🔹 FIX: Evitar error cuando instance es un RequestContainer temporal
+    if not hasattr(instance, "isMedicalRecordTemporary"):
+        return
+
     if instance.isMedicalRecordTemporary():
         return
+
     mrn = instance.getMedicalRecordNumberValue()
-    # Allow empty value when patients are not required for samples
     if mrn is None:
         return
+
     patient = patient_api.get_patient_by_mrn(mrn, include_inactive=True)
-    # Create a new patient
+
     if patient is None:
         if patient_api.is_patient_allowed_in_client():
-            # create the patient in the client
             container = instance.getClient()
         else:
-            # create the patient in the global patients folder
             container = patient_api.get_patient_folder()
 
-        # check if the user is allowed to add a new patient
         if not patient_api.is_patient_creation_allowed(container):
             return None
 
@@ -146,11 +143,8 @@ def get_patient_fields(instance):
 
 
 def update_results_ranges(sample):
-    """Re-assigns the values of the results ranges for analyses, so dynamic
-    specifications are re-calculated when patient values such as sex and date
-    of birth are updated
+    """Re-assigns the values of the results ranges for analyses
     """
-    # reset the result ranges so dynamic specs are grabbed again
     spec = sample.getSpecification()
     if spec:
         ranges = spec.getResultsRange()
