@@ -19,26 +19,47 @@
 # Some rights reserved, see README and LICENSE.
 
 from bika.lims import api
+from bika.lims.interfaces import IAnalysisRequest
 from senaite.core.behaviors import IClientShareableBehavior
 from senaite.patient import api as patient_api
 from senaite.patient import check_installed
 from senaite.patient import logger
 
 
+def _is_ar(obj):
+    """True solo si es un AnalysisRequest (incluye retest/partition/secondary)."""
+    try:
+        return IAnalysisRequest.providedBy(obj)
+    except Exception:
+        return False
+
+
+def _getattr_callable(obj, name, default=None):
+    """Obtiene atributo si existe y es callable, si no devuelve default."""
+    val = getattr(obj, name, None)
+    if callable(val):
+        return val
+    return default
+
+
 @check_installed(None)
 def on_object_created(instance, event):
-    """Event handler when a sample was created"""
+    """Se dispara al crear la muestra (AR)."""
+    if not _is_ar(instance):
+        return
+
     patient = update_patient(instance)
 
+    # no patient creado cuando el MRN es temporal o no hay MRN
     if not patient:
         return
 
-    # Append patient email to sample CC emails
+    # Añadir email del paciente a CC si corresponde
     if patient.getEmailReport():
         email = patient.getEmail()
         add_cc_email(instance, email)
 
-    # Share patient with sample's client users if necessary
+    # Compartir patient con el cliente del AR si la opción está activa
     reg_key = "senaite.patient.share_patients"
     if api.get_registry_record(reg_key, default=False):
         client_uid = api.get_uid(instance.getClient())
@@ -51,13 +72,15 @@ def on_object_created(instance, event):
 
 @check_installed(None)
 def on_object_edited(instance, event):
-    """Event handler when a sample was edited"""
+    """Se dispara al editar la muestra (AR)."""
+    if not _is_ar(instance):
+        return
     update_patient(instance)
     update_results_ranges(instance)
 
 
 def add_cc_email(sample, email):
-    """Add CC email recipient to sample"""
+    """Añade un destinatario CC al AR si no existe ya."""
     emails = sample.getCCEmails().split(",")
     if email in emails:
         return
@@ -67,24 +90,35 @@ def add_cc_email(sample, email):
 
 
 def update_patient(instance):
-    """Ensure patient is created/updated from the AR and linked back"""
-    # Avoid errors for temporary RequestContainers
-    if not hasattr(instance, "getMedicalRecordNumberValue"):
-        return
+    """Crea/actualiza el Patient y asegura el enlace en el AR."""
+    # Evitar cualquier caso raro (por ejemplo, during container events)
+    if not _is_ar(instance):
+        return None
 
-    mrn = instance.getMedicalRecordNumberValue()
-    if not mrn:
-        return
+    is_temp_fn = _getattr_callable(instance, "isMedicalRecordTemporary")
+    if is_temp_fn and is_temp_fn():
+        return None
 
+    get_mrn_val = _getattr_callable(instance, "getMedicalRecordNumberValue")
+    mrn = get_mrn_val() if get_mrn_val else None
+    # Permitir vacío si la config no requiere pacientes, pero no hacemos nada
+    if mrn is None or mrn == "":
+        return None
+
+    # Buscar Patient por MRN (incluye inactivos)
     patient = patient_api.get_patient_by_mrn(mrn, include_inactive=True)
 
+    # Crear Patient si no existe
     if patient is None:
         if patient_api.is_patient_allowed_in_client():
             container = instance.getClient()
         else:
             container = patient_api.get_patient_folder()
 
+        # Verificar permisos para crear Patient
         if not patient_api.is_patient_creation_allowed(container):
+            logger.warn("Patient creation not allowed in '{}' for MRN '{}'"
+                        .format(api.get_path(container), mrn))
             return None
 
         logger.info("Creating new Patient in '{}' with MRN: '{}'"
@@ -96,33 +130,83 @@ def update_patient(instance):
         except ValueError as exc:
             logger.error("%s" % exc)
             logger.error("Failed to create patient for values: %r" % values)
-            raise exc
+            raise
 
-    # 🔹 FIX: Always assign patient + MRN back to the AnalysisRequest
+    # ── Enlazar el AR con el Patient si aún no está enlazado ─────────────────
+    # El campo 'MedicalRecordNumber' del AR es un ReferenceField al Patient.
+    set_mrn_ref = _getattr_callable(instance, "setMedicalRecordNumber")
+    get_mrn_ref = _getattr_callable(instance, "getMedicalRecordNumber")
+    needs_link = True
+
     try:
-        instance.setPatient(patient)
-        instance.setMedicalRecordNumber(patient.getMedicalRecordNumber())
-        instance.reindexObject(idxs=["getPatient", "getMedicalRecordNumber"])
-    except Exception as e:
-        logger.warn("Failed to link Patient to AR '{}': {}".format(
-            api.get_id(instance), e))
+        current = get_mrn_ref() if get_mrn_ref else None
+        # Algunos esquemas devuelven objeto, otros UID/lista
+        if current:
+            # si devuelve lista (p.ej. ref multi), tomar primero
+            if isinstance(current, (list, tuple)):
+                current = current[0] if current else None
+            # comparar por UID
+            needs_link = api.get_uid(current) != api.get_uid(patient)
+    except Exception:
+        needs_link = True
+
+    if set_mrn_ref and needs_link:
+        try:
+            # Archetypes ReferenceField acepta objeto o UID
+            set_mrn_ref(patient)
+        except Exception as exc:
+            logger.warn("Could not set MedicalRecordNumber reference: %s" % exc)
+
+    # Opcional: si existe un setter explícito para el valor texto del MRN, lo actualizamos
+    set_mrn_val = _getattr_callable(instance, "setMedicalRecordNumberValue")
+    if set_mrn_val:
+        try:
+            # En Patient el campo suele llamarse 'mrn'
+            pat_mrn = getattr(patient, "getMRN", None)
+            pat_mrn = pat_mrn() if callable(pat_mrn) else getattr(patient, "mrn", mrn)
+            set_mrn_val(pat_mrn or mrn)
+        except Exception:
+            pass
+
+    # Reindexar para que el listado recoja MRN/Paciente
+    try:
+        instance.reindexObject()
+    except Exception:
+        # fallback por si el reindex falla durante la creación
+        try:
+            api.reindex(instance)
+        except Exception:
+            logger.warn("Reindex after patient link skipped for {}".format(api.get_path(instance)))
 
     return patient
 
 
 def get_patient_fields(instance):
-    """Extract the patient fields from the sample"""
-    mrn = instance.getMedicalRecordNumberValue()
-    sex = instance.getField("Sex").get(instance)
-    gender = instance.getField("Gender").get(instance)
+    """Extrae los campos de paciente desde el AR para crear/actualizar Patient."""
+    get_mrn_val = _getattr_callable(instance, "getMedicalRecordNumberValue")
+    mrn = get_mrn_val() if get_mrn_val else None
+
+    sex = instance.getField("Sex").get(instance) if instance.getField("Sex") else None
+    gender = instance.getField("Gender").get(instance) if instance.getField("Gender") else None
+
     dob_field = instance.getField("DateOfBirth")
-    birthdate = dob_field.get_date_of_birth(instance)
-    estimated = dob_field.get_estimated(instance)
-    address = instance.getField("PatientAddress").get(instance)
-    field = instance.getField("PatientFullName")
-    firstname = field.get_firstname(instance)
-    middlename = field.get_middlename(instance)
-    lastname = field.get_lastname(instance)
+    if dob_field:
+        birthdate = dob_field.get_date_of_birth(instance)
+        estimated = dob_field.get_estimated(instance)
+    else:
+        birthdate = None
+        estimated = False
+
+    address_field = instance.getField("PatientAddress")
+    address = address_field.get(instance) if address_field else None
+
+    name_field = instance.getField("PatientFullName")
+    if name_field:
+        firstname = name_field.get_firstname(instance)
+        middlename = name_field.get_middlename(instance)
+        lastname = name_field.get_lastname(instance)
+    else:
+        firstname = middlename = lastname = u""
 
     if address:
         address = {
@@ -144,7 +228,7 @@ def get_patient_fields(instance):
 
 
 def update_results_ranges(sample):
-    """Re-assign result ranges so dynamic specs recalc after patient update"""
+    """Recalcula rangos de resultados después de cambiar datos del paciente."""
     spec = sample.getSpecification()
     if spec:
         ranges = spec.getResultsRange()
