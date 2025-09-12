@@ -93,7 +93,16 @@ MedicalRecordNumberField = TemporaryIdentifierField(
                 "width": "20",
                 "align": "left",
                 "label": _(u"MRN"),
-            }, {
+            },
+            # 🔹 NUEVO: muestra el nombre completo calculado por el Patient
+            {
+                "name": "getFullname",
+                "width": "40",
+                "align": "left",
+                "label": _(u"Full name"),
+            },
+            # (Mantenemos las partes por si quieres seguir viéndolas)
+            {
                 "name": "firstname",
                 "width": "15",
                 "align": "left",
@@ -132,7 +141,8 @@ PatientFullNameField = FullnameField(
     widget=FullnameWidget(
         label=_("Patient name"),
         entry_mode="parts",
-        view_format="%(firstname)s %(middlename)s %(lastname)s %(maternal_lastname)s",
+        # 🔹 CAMBIO CLAVE: usa el método del Patient, que ya concatena los 4 campos
+        view_format="%(getFullname)s",
         render_own_label=True,
         visible={
             "add": "edit",
