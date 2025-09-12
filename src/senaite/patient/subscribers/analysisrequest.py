@@ -27,11 +27,10 @@ from senaite.patient import logger
 
 @check_installed(None)
 def on_object_created(instance, event):
-    """Event handler when a sample (AnalysisRequest) is created
-    """
+    """Event handler when a sample was created"""
     patient = update_patient(instance)
 
-    # no patient created when the MRN is temporary or invalid
+    # no patient created when the MRN is temporary
     if not patient:
         return
 
@@ -45,6 +44,7 @@ def on_object_created(instance, event):
     if api.get_registry_record(reg_key, default=False):
         client_uid = api.get_uid(instance.getClient())
         behavior = IClientShareableBehavior(patient)
+        # Keep existing clients
         client_uids = behavior.getRawClients() or []
         if client_uid not in client_uids:
             client_uids.append(client_uid)
@@ -53,16 +53,13 @@ def on_object_created(instance, event):
 
 @check_installed(None)
 def on_object_edited(instance, event):
-    """Event handler when a sample (AnalysisRequest) is edited
-    """
+    """Event handler when a sample was edited"""
     update_patient(instance)
-    # update results ranges so dynamic specs are recalculated
     update_results_ranges(instance)
 
 
 def add_cc_email(sample, email):
-    """Add CC email recipient to sample
-    """
+    """add CC email recipient to sample"""
     emails = sample.getCCEmails().split(",")
     if email in emails:
         return
@@ -72,26 +69,29 @@ def add_cc_email(sample, email):
 
 
 def update_patient(instance):
-    """Ensure patient is created/updated from the AR
-    """
-    # 🔹 FIX: ignorar objetos temporales RequestContainer que no tienen métodos de paciente
-    if not hasattr(instance, "getMedicalRecordNumberValue"):
+    """Ensure patient is created/updated from the AR"""
+
+    # 🔹 Ignore non-AnalysisRequest objects (like RequestContainer temporaries)
+    if not getattr(instance, "portal_type", None) == "AnalysisRequest":
         return None
+
+    # ignore temporary Medical Record Numbers
+    if getattr(instance, "isMedicalRecordTemporary", None):
+        if instance.isMedicalRecordTemporary():
+            return None
 
     mrn = instance.getMedicalRecordNumberValue()
     # Allow empty value when patients are not required for samples
-    if not mrn:
+    if mrn is None:
         return None
 
     patient = patient_api.get_patient_by_mrn(mrn, include_inactive=True)
 
-    # Create a new patient if none exists
+    # Create a new patient if it does not exist
     if patient is None:
         if patient_api.is_patient_allowed_in_client():
-            # create the patient in the client
             container = instance.getClient()
         else:
-            # create the patient in the global patients folder
             container = patient_api.get_patient_folder()
 
         # check if the user is allowed to add a new patient
@@ -109,19 +109,11 @@ def update_patient(instance):
             logger.error("Failed to create patient for values: %r" % values)
             raise exc
 
-    # 🔹 Reindexar para que MRN y paciente aparezcan en el listado
-    try:
-        instance.reindexObject()
-    except Exception as e:
-        logger.warn("Could not reindex AnalysisRequest {}: {}".format(
-            instance, e))
-
     return patient
 
 
 def get_patient_fields(instance):
-    """Extract the patient fields from the sample
-    """
+    """Extract the patient fields from the sample"""
     mrn = instance.getMedicalRecordNumberValue()
     sex = instance.getField("Sex").get(instance)
     gender = instance.getField("Gender").get(instance)
@@ -154,8 +146,7 @@ def get_patient_fields(instance):
 
 
 def update_results_ranges(sample):
-    """Re-assigns the values of the results ranges for analyses
-    """
+    """Re-assigns the values of the results ranges for analyses"""
     spec = sample.getSpecification()
     if spec:
         ranges = spec.getResultsRange()
