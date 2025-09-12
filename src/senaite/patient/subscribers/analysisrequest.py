@@ -44,7 +44,6 @@ def on_object_created(instance, event):
     if api.get_registry_record(reg_key, default=False):
         client_uid = api.get_uid(instance.getClient())
         behavior = IClientShareableBehavior(patient)
-        # Keep existing clients
         client_uids = behavior.getRawClients() or []
         if client_uid not in client_uids:
             client_uids.append(client_uid)
@@ -70,31 +69,32 @@ def add_cc_email(sample, email):
 
 def update_patient(instance):
     """Ensure patient is created/updated from the AR"""
-
-    # 🔹 Ignore non-AnalysisRequest objects (like RequestContainer temporaries)
-    if not getattr(instance, "portal_type", None) == "AnalysisRequest":
+    # ✅ Solo trabajar con objetos AnalysisRequest
+    if not hasattr(instance, "portal_type"):
+        return None
+    if instance.portal_type != "AnalysisRequest":
         return None
 
-    # ignore temporary Medical Record Numbers
-    if getattr(instance, "isMedicalRecordTemporary", None):
-        if instance.isMedicalRecordTemporary():
-            return None
+    # ✅ Ignorar objetos sin este método
+    if not hasattr(instance, "getMedicalRecordNumberValue"):
+        return None
+
+    # ✅ Manejo de AR temporales
+    if hasattr(instance, "isMedicalRecordTemporary") and instance.isMedicalRecordTemporary():
+        return None
 
     mrn = instance.getMedicalRecordNumberValue()
-    # Allow empty value when patients are not required for samples
     if mrn is None:
         return None
 
     patient = patient_api.get_patient_by_mrn(mrn, include_inactive=True)
 
-    # Create a new patient if it does not exist
     if patient is None:
         if patient_api.is_patient_allowed_in_client():
             container = instance.getClient()
         else:
             container = patient_api.get_patient_folder()
 
-        # check if the user is allowed to add a new patient
         if not patient_api.is_patient_creation_allowed(container):
             return None
 
@@ -108,7 +108,6 @@ def update_patient(instance):
             logger.error("%s" % exc)
             logger.error("Failed to create patient for values: %r" % values)
             raise exc
-
     return patient
 
 
