@@ -124,29 +124,14 @@ def patient_searchable_text(instance):
 @indexer(IPatient)
 def patient_searchable_mrn(instance):
     """Index for searchable Patient MRN queries
-       🔹 Incluye ahora maternal_lastname
+       Incluye ahora maternal_lastname
     """
     searchable_text_tokens = [
         instance.getMRN(),
         instance.getFirstname(),
         instance.getMiddlename(),
         instance.getLastname(),
-        instance.getMaternalLastname(),  # 🔹 añadido
+        instance.getMaternalLastname(),
     ]
     searchable_text_tokens = filter(None, searchable_text_tokens)
     return " ".join(searchable_text_tokens)
-✅ Con esto:
-
-El catálogo ahora guarda firstname, middlename, lastname, maternal_lastname y fullname como columnas.
-
-patient_searchable_mrn también usa los 4 campos.
-
-patient_fullname sigue como columna/index central para máxima compatibilidad.
-
-👉 Después de copiar estos dos archivos a tu fork, debes reconstruir el catálogo de pacientes para que se actualicen las columnas:
-
-python
-Copiar código
-portal = app.restrictedTraverse("infolabsa")
-catalog = portal.senaite_catalog_patient
-catalog.clearFindAndRebuild()
