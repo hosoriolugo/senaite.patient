@@ -27,21 +27,20 @@ from senaite.patient import logger
 
 @check_installed(None)
 def on_object_created(instance, event):
-    """Event handler when a sample was created
+    """Event handler when a sample (AnalysisRequest) is created
     """
-    # ⚠️ Ignorar objetos temporales sin métodos de paciente
-    if not hasattr(instance, "getMedicalRecordNumberValue"):
-        return
-
     patient = update_patient(instance)
 
+    # no patient created when the MRN is temporary or invalid
     if not patient:
         return
 
+    # append patient email to sample CC emails
     if patient.getEmailReport():
         email = patient.getEmail()
         add_cc_email(instance, email)
 
+    # share patient with sample's client users if necessary
     reg_key = "senaite.patient.share_patients"
     if api.get_registry_record(reg_key, default=False):
         client_uid = api.get_uid(instance.getClient())
@@ -54,17 +53,15 @@ def on_object_created(instance, event):
 
 @check_installed(None)
 def on_object_edited(instance, event):
-    """Event handler when a sample was edited
+    """Event handler when a sample (AnalysisRequest) is edited
     """
-    if not hasattr(instance, "getMedicalRecordNumberValue"):
-        return
-
     update_patient(instance)
+    # update results ranges so dynamic specs are recalculated
     update_results_ranges(instance)
 
 
 def add_cc_email(sample, email):
-    """add CC email recipient to sample
+    """Add CC email recipient to sample
     """
     emails = sample.getCCEmails().split(",")
     if email in emails:
@@ -77,25 +74,27 @@ def add_cc_email(sample, email):
 def update_patient(instance):
     """Ensure patient is created/updated from the AR
     """
-    # ⚠️ Si no es un AR real, abortar
-    if not hasattr(instance, "isMedicalRecordTemporary"):
-        return
-
-    if instance.isMedicalRecordTemporary():
-        return
+    # 🔹 FIX: ignorar objetos temporales RequestContainer que no tienen métodos de paciente
+    if not hasattr(instance, "getMedicalRecordNumberValue"):
+        return None
 
     mrn = instance.getMedicalRecordNumberValue()
-    if mrn is None:
-        return
+    # Allow empty value when patients are not required for samples
+    if not mrn:
+        return None
 
     patient = patient_api.get_patient_by_mrn(mrn, include_inactive=True)
 
+    # Create a new patient if none exists
     if patient is None:
         if patient_api.is_patient_allowed_in_client():
+            # create the patient in the client
             container = instance.getClient()
         else:
+            # create the patient in the global patients folder
             container = patient_api.get_patient_folder()
 
+        # check if the user is allowed to add a new patient
         if not patient_api.is_patient_creation_allowed(container):
             return None
 
@@ -109,6 +108,14 @@ def update_patient(instance):
             logger.error("%s" % exc)
             logger.error("Failed to create patient for values: %r" % values)
             raise exc
+
+    # 🔹 Reindexar para que MRN y paciente aparezcan en el listado
+    try:
+        instance.reindexObject()
+    except Exception as e:
+        logger.warn("Could not reindex AnalysisRequest {}: {}".format(
+            instance, e))
+
     return patient
 
 
