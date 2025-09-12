@@ -30,16 +30,15 @@ def on_object_created(instance, event):
     """Event handler when a sample was created"""
     patient = update_patient(instance)
 
-    # no patient created when the MRN is temporary
     if not patient:
         return
 
-    # append patient email to sample CC emails
+    # Append patient email to sample CC emails
     if patient.getEmailReport():
         email = patient.getEmail()
         add_cc_email(instance, email)
 
-    # share patient with sample's client users if necessary
+    # Share patient with sample's client users if necessary
     reg_key = "senaite.patient.share_patients"
     if api.get_registry_record(reg_key, default=False):
         client_uid = api.get_uid(instance.getClient())
@@ -58,7 +57,7 @@ def on_object_edited(instance, event):
 
 
 def add_cc_email(sample, email):
-    """add CC email recipient to sample"""
+    """Add CC email recipient to sample"""
     emails = sample.getCCEmails().split(",")
     if email in emails:
         return
@@ -68,24 +67,14 @@ def add_cc_email(sample, email):
 
 
 def update_patient(instance):
-    """Ensure patient is created/updated from the AR"""
-    # ✅ Solo trabajar con objetos AnalysisRequest
-    if not hasattr(instance, "portal_type"):
-        return None
-    if instance.portal_type != "AnalysisRequest":
-        return None
-
-    # ✅ Ignorar objetos sin este método
+    """Ensure patient is created/updated from the AR and linked back"""
+    # Avoid errors for temporary RequestContainers
     if not hasattr(instance, "getMedicalRecordNumberValue"):
-        return None
-
-    # ✅ Manejo de AR temporales
-    if hasattr(instance, "isMedicalRecordTemporary") and instance.isMedicalRecordTemporary():
-        return None
+        return
 
     mrn = instance.getMedicalRecordNumberValue()
-    if mrn is None:
-        return None
+    if not mrn:
+        return
 
     patient = patient_api.get_patient_by_mrn(mrn, include_inactive=True)
 
@@ -108,6 +97,16 @@ def update_patient(instance):
             logger.error("%s" % exc)
             logger.error("Failed to create patient for values: %r" % values)
             raise exc
+
+    # 🔹 FIX: Always assign patient + MRN back to the AnalysisRequest
+    try:
+        instance.setPatient(patient)
+        instance.setMedicalRecordNumber(patient.getMedicalRecordNumber())
+        instance.reindexObject(idxs=["getPatient", "getMedicalRecordNumber"])
+    except Exception as e:
+        logger.warn("Failed to link Patient to AR '{}': {}".format(
+            api.get_id(instance), e))
+
     return patient
 
 
@@ -145,7 +144,7 @@ def get_patient_fields(instance):
 
 
 def update_results_ranges(sample):
-    """Re-assigns the values of the results ranges for analyses"""
+    """Re-assign result ranges so dynamic specs recalc after patient update"""
     spec = sample.getSpecification()
     if spec:
         ranges = spec.getResultsRange()
