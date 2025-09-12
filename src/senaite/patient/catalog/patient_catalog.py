@@ -46,8 +46,14 @@ INDEXES = BASE_INDEXES + [
 ]
 
 COLUMNS = BASE_COLUMNS + [
-    # attribute name
+    # atributos disponibles como metadatos en el catálogo
     "mrn",
+    "firstname",
+    "middlename",          # 🔹 añadido
+    "lastname",
+    "maternal_lastname",   # 🔹 añadido
+    "getFullname",         # 🔹 añadido
+    "getLocalizedBirthdate",
 ]
 
 TYPES = [
