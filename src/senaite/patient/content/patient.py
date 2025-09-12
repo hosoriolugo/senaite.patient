@@ -153,7 +153,7 @@ class IPatientSchema(model.Schema):
 
     firstname = schema.TextLine(
         title=_(u"label_patient_firstname", default=u"Firstname"),
-        description=_(u"Patient firstname"),
+        description=_(u"Primer nombre paciente"),
         required=False,
     )
 
