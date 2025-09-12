@@ -29,27 +29,23 @@ from senaite.patient import logger
 def on_object_created(instance, event):
     """Event handler when a sample was created
     """
-    # ⚠️ Evitar ejecutar en objetos temporales (RequestContainer)
-    if instance.__class__.__name__ == "RequestContainer":
+    # ⚠️ Ignorar objetos temporales sin métodos de paciente
+    if not hasattr(instance, "getMedicalRecordNumberValue"):
         return
 
     patient = update_patient(instance)
 
-    # no patient created when the MRN is temporary
     if not patient:
         return
 
-    # append patient email to sample CC emails
     if patient.getEmailReport():
         email = patient.getEmail()
         add_cc_email(instance, email)
 
-    # share patient with sample's client users if necessary
     reg_key = "senaite.patient.share_patients"
     if api.get_registry_record(reg_key, default=False):
         client_uid = api.get_uid(instance.getClient())
         behavior = IClientShareableBehavior(patient)
-        # keep existing shared clients
         client_uids = behavior.getRawClients() or []
         if client_uid not in client_uids:
             client_uids.append(client_uid)
@@ -60,12 +56,10 @@ def on_object_created(instance, event):
 def on_object_edited(instance, event):
     """Event handler when a sample was edited
     """
-    # ⚠️ Evitar ejecutar en objetos temporales (RequestContainer)
-    if instance.__class__.__name__ == "RequestContainer":
+    if not hasattr(instance, "getMedicalRecordNumberValue"):
         return
 
     update_patient(instance)
-    # update results ranges so dynamic specs are recalculated
     update_results_ranges(instance)
 
 
@@ -76,7 +70,6 @@ def add_cc_email(sample, email):
     if email in emails:
         return
     emails.append(email)
-    # remove whitespaces
     emails = map(lambda e: e.strip(), emails)
     sample.setCCEmails(",".join(emails))
 
@@ -84,28 +77,25 @@ def add_cc_email(sample, email):
 def update_patient(instance):
     """Ensure patient is created/updated from the AR
     """
-    # ⚠️ Evitar error con objetos temporales
-    if instance.__class__.__name__ == "RequestContainer":
+    # ⚠️ Si no es un AR real, abortar
+    if not hasattr(instance, "isMedicalRecordTemporary"):
         return
 
     if instance.isMedicalRecordTemporary():
         return
 
     mrn = instance.getMedicalRecordNumberValue()
-    # Allow empty value when patients are not required for samples
     if mrn is None:
         return
 
     patient = patient_api.get_patient_by_mrn(mrn, include_inactive=True)
 
-    # Create a new patient if not found
     if patient is None:
         if patient_api.is_patient_allowed_in_client():
             container = instance.getClient()
         else:
             container = patient_api.get_patient_folder()
 
-        # check if the user is allowed to add a new patient
         if not patient_api.is_patient_creation_allowed(container):
             return None
 
@@ -157,9 +147,7 @@ def get_patient_fields(instance):
 
 
 def update_results_ranges(sample):
-    """Re-assigns the values of the results ranges for analyses,
-    so dynamic specifications are re-calculated when patient values
-    such as sex and date of birth are updated
+    """Re-assigns the values of the results ranges for analyses
     """
     spec = sample.getSpecification()
     if spec:
