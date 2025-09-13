@@ -133,35 +133,29 @@ def update_patient(instance):
             raise
 
     # ── Enlazar el AR con el Patient si aún no está enlazado ─────────────────
-    # El campo 'MedicalRecordNumber' del AR es un ReferenceField al Patient.
     set_mrn_ref = _getattr_callable(instance, "setMedicalRecordNumber")
     get_mrn_ref = _getattr_callable(instance, "getMedicalRecordNumber")
     needs_link = True
 
     try:
         current = get_mrn_ref() if get_mrn_ref else None
-        # Algunos esquemas devuelven objeto, otros UID/lista
         if current:
-            # si devuelve lista (p.ej. ref multi), tomar primero
             if isinstance(current, (list, tuple)):
                 current = current[0] if current else None
-            # comparar por UID
             needs_link = api.get_uid(current) != api.get_uid(patient)
     except Exception:
         needs_link = True
 
     if set_mrn_ref and needs_link:
         try:
-            # Archetypes ReferenceField acepta objeto o UID
             set_mrn_ref(patient)
         except Exception as exc:
             logger.warn("Could not set MedicalRecordNumber reference: %s" % exc)
 
-    # Opcional: si existe un setter explícito para el valor texto del MRN, lo actualizamos
+    # Opcional: actualizar el valor texto del MRN
     set_mrn_val = _getattr_callable(instance, "setMedicalRecordNumberValue")
     if set_mrn_val:
         try:
-            # En Patient el campo suele llamarse 'mrn'
             pat_mrn = getattr(patient, "getMRN", None)
             pat_mrn = pat_mrn() if callable(pat_mrn) else getattr(patient, "mrn", mrn)
             set_mrn_val(pat_mrn or mrn)
@@ -172,7 +166,6 @@ def update_patient(instance):
     try:
         instance.reindexObject()
     except Exception:
-        # fallback por si el reindex falla durante la creación
         try:
             api.reindex(instance)
         except Exception:
@@ -205,8 +198,13 @@ def get_patient_fields(instance):
         firstname = name_field.get_firstname(instance)
         middlename = name_field.get_middlename(instance)
         lastname = name_field.get_lastname(instance)
+        # 🔹 Ajuste: soportar maternal_lastname también
+        maternal_lastname = ""
+        get_maternal = getattr(name_field, "get_maternal_lastname", None)
+        if callable(get_maternal):
+            maternal_lastname = get_maternal(instance)
     else:
-        firstname = middlename = lastname = u""
+        firstname = middlename = lastname = maternal_lastname = u""
 
     if address:
         address = {
@@ -224,6 +222,7 @@ def get_patient_fields(instance):
         "firstname": api.safe_unicode(firstname),
         "middlename": api.safe_unicode(middlename),
         "lastname": api.safe_unicode(lastname),
+        "maternal_lastname": api.safe_unicode(maternal_lastname),
     }
 
 
