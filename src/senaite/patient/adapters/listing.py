@@ -105,47 +105,32 @@ class SamplesListingAdapter(object):
             after_icons += self.icon_tag("id-card-red", **kwargs)
             item["after"].update({"getId": after_icons})
 
+        # Siempre guardamos el MRN del sample
         sample_patient_mrn = api.to_utf8(
             obj.getMedicalRecordNumberValue, default="")
 
-        sample_patient_fullname = api.to_utf8(
-            obj.getPatientFullName, default="")
-
         item["MRN"] = sample_patient_mrn
-        item["Patient"] = sample_patient_fullname
 
-        # get the patient object
+        # Obtener el objeto Patient real
         patient = self.get_patient_by_mrn(sample_patient_mrn)
 
         if not patient:
+            # Fallback si no hay paciente asociado
+            item["Patient"] = _("(No patient)")
             return
 
-        # Link to patient object
+        # 🔹 Usar siempre getFullname() del paciente (los 4 campos)
+        patient_fullname = patient.getFullname()
         patient_url = api.get_url(patient)
+
+        # Linkeamos el nombre completo del paciente
+        patient_view_url = "{}/@@view".format(patient_url)
+        item["Patient"] = get_link(patient_view_url, patient_fullname)
+
+        # Linkeamos también el MRN
         if sample_patient_mrn:
             item["replace"]["MRN"] = get_link(
                 patient_url, sample_patient_mrn)
-
-        patient_mrn = patient.getMRN()
-        patient_fullname = patient.getFullname()
-
-        # patient MRN is different
-        if sample_patient_mrn != patient_mrn:
-            msg = _("Patient MRN of sample is not equal to %s")
-            val = api.safe_unicode(patient_mrn) or _("<no value>")
-            icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
-            item["after"]["MRN"] = self.icon_tag("info", **icon_args)
-
-        if sample_patient_fullname != patient_fullname:
-            msg = _("Patient fullname of sample is not equal to %s")
-            val = api.safe_unicode(patient_fullname) or _("<no value>")
-            icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
-            item["after"]["Patient"] = self.icon_tag("info", **icon_args)
-        else:
-            patient_view_url = "{}/@@view".format(patient_url)
-            patient_view_url = get_link(
-                    patient_view_url, sample_patient_fullname)
-            item["Patient"] = patient_view_url
 
     @viewcache
     def get_patient_by_mrn(self, mrn):
