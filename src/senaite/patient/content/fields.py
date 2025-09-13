@@ -68,9 +68,10 @@ class TemporaryIdentifierField(ExtensionField, ObjectField):
 
 
 class FullnameField(ExtensionField, ObjectField):
-    """ObjectField extender that stores a dictionary with two keys ('firstname'
-    and 'lastname') that represent the fullname of a person
+    """ObjectField extender que almacena un dict con:
+       firstname, middlename, lastname, maternal_lastname
     """
+
     _properties = ObjectField._properties.copy()
     _properties.update({
         "type": "fullname",
@@ -80,26 +81,25 @@ class FullnameField(ExtensionField, ObjectField):
     security = ClassSecurityInfo()
 
     def set(self, instance, value, **kwargs):
-        val = dict.fromkeys(["firstname", "middlename", "lastname"], "")
+        # 🔹 Incluye maternal_lastname además de firstname/middlename/lastname
+        val = dict.fromkeys(
+            ["firstname", "middlename", "lastname", "maternal_lastname"], ""
+        )
 
         if isinstance(value, six.string_types):
-            # Fullname entry mode
+            # Entrada string simple → guardar en firstname para no romper compat.
             val["firstname"] = value
 
         elif value is not None:
-            # Ensure the stored object is from dict type. The received value
-            # can be from ZPublisher record type and since the field inherits
-            # from ObjectField, no conversion is done by the super field
             try:
-                for key, value in value.items():
+                for key, v in value.items():
                     if key not in val:
                         continue
-                    val[key] = value
+                    val[key] = v
             except AttributeError:
                 msg = "Type not supported: {}".format(repr(type(value)))
                 raise ValueError(msg)
 
-        # Set default if no values for any of the keys
         values = filter(None, val.values())
         if not any(values):
             val = self.getDefault(instance)
@@ -118,11 +118,17 @@ class FullnameField(ExtensionField, ObjectField):
         val = self.get(instance) or {}
         return val.get("lastname", "")
 
+    def get_maternal_lastname(self, instance):
+        val = self.get(instance) or {}
+        return val.get("maternal_lastname", "")
+
     def get_fullname(self, instance):
         firstname = self.get_firstname(instance)
         middlename = self.get_middlename(instance)
         lastname = self.get_lastname(instance)
-        return " ".join(filter(None, [firstname, middlename, lastname]))
+        maternal = self.get_maternal_lastname(instance)
+        return " ".join(filter(None, [firstname, middlename, lastname, maternal]))
+
 
 
 @implementer(IAgeDateOfBirthField)
