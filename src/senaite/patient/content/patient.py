@@ -18,7 +18,6 @@
 # Copyright 2020-2025 by it's authors.
 # Some rights reserved, see README and LICENSE.
 
-# -*- coding: utf-8 -*-
 from string import Template
 
 from AccessControl import ClassSecurityInfo
@@ -32,6 +31,7 @@ from plone.supermodel.directives import fieldset
 from plone.autoform import directives as autoform_directives
 from z3c.form.browser.text import TextWidget
 from Products.CMFCore import permissions
+from Products.CMFPlone.utils import safe_unicode
 from senaite.core.api import dtime
 from senaite.core.behaviors import IClientShareable
 from senaite.core.content.base import Container
@@ -471,17 +471,17 @@ class Patient(Container):
             on_date = datetime.now().date()
         if not birthdate:
             return ""
-        
+
         # Usar relativedelta para calcular la edad
         age = relativedelta(on_date, birthdate)
-        
+
         # Formato compatible con Python 2.7
         if age.years > 0:
-            return "{} años".format(age.years)
+            return u"{} años".format(age.years)
         elif age.months > 0:
-            return "{} meses".format(age.months)
+            return u"{} meses".format(age.months)
         else:
-            return "{} días".format(age.days)
+            return u"{} días".format(age.days)
 
     @security.protected(permissions.View)
     def getAge(self):
@@ -489,7 +489,7 @@ class Patient(Container):
         If age is empty but birthdate exists, calculate it and try to save it.
         """
         accessor = self.accessor("age")
-        age = accessor(self) or ""
+        age = accessor(self) or u""
 
         if not age:
             # obtain birthdate as a plain date (getBirthdate by default returns date)
@@ -499,7 +499,7 @@ class Patient(Container):
                 try:
                     age = self.calculate_age(birthdate)
                 except Exception:
-                    age = ""
+                    age = u""
                 # try to persist; wrap in try/except because view may run
                 # under users without Modify permission
                 if age:
@@ -519,23 +519,21 @@ class Patient(Container):
 
     @security.protected(permissions.View)
     def Title(self):
-        return self.getFullname()
+        # Devolver unicode con las 4 partes
+        return safe_unicode(self.getFullname())
 
     @security.protected(permissions.View)
     def getMRN(self):
         """Returns the MRN with the field accessor
         """
         accessor = self.accessor("mrn")
-        value = accessor(self) or ""
-        return value.encode("utf-8")
+        value = accessor(self) or u""
+        return api.safe_unicode(value)
 
     @security.protected(permissions.ModifyPortalContent)
     def setMRN(self, value):
         """Set MRN by the field accessor
         """
-        # XXX These checks will be quite common on setters linked to `required`
-        # fields. We could add a decorator or, if we use our own implementation
-        # of BaseField, take this into consideration in the `get(self)` func.
         if not value:
             raise ValueError("Value is missing or empty")
 
@@ -639,60 +637,66 @@ class Patient(Container):
     @security.protected(permissions.View)
     def getFirstname(self):
         accessor = self.accessor("firstname")
-        value = accessor(self) or ""
-        return value.encode("utf-8")
+        value = accessor(self) or u""
+        return api.safe_unicode(value).strip()
 
     @security.protected(permissions.ModifyPortalContent)
     def setFirstname(self, value):
         if not isinstance(value, string_types):
             value = u""
         mutator = self.mutator("firstname")
-        mutator(self, api.safe_unicode(value.strip()))
+        mutator(self, api.safe_unicode(value).strip())
 
     @security.protected(permissions.View)
     def getMiddlename(self):
         accessor = self.accessor("middlename")
-        value = accessor(self) or ""
-        return value.encode("utf-8")
+        value = accessor(self) or u""
+        return api.safe_unicode(value).strip()
 
     @security.protected(permissions.ModifyPortalContent)
     def setMiddlename(self, value):
         if not isinstance(value, string_types):
             value = u""
         mutator = self.mutator("middlename")
-        mutator(self, api.safe_unicode(value.strip()))
+        mutator(self, api.safe_unicode(value).strip())
 
     @security.protected(permissions.View)
     def getLastname(self):
         accessor = self.accessor("lastname")
-        value = accessor(self) or ""
-        return value.encode("utf-8")
+        value = accessor(self) or u""
+        return api.safe_unicode(value).strip()
 
     @security.protected(permissions.ModifyPortalContent)
     def setLastname(self, value):
         if not isinstance(value, string_types):
             value = u""
         mutator = self.mutator("lastname")
-        mutator(self, api.safe_unicode(value.strip()))
+        mutator(self, api.safe_unicode(value).strip())
 
     @security.protected(permissions.View)
     def getMaternalLastname(self):
         accessor = self.accessor("maternal_lastname")
-        value = accessor(self) or ""
-        return value.encode("utf-8")
+        value = accessor(self) or u""
+        return api.safe_unicode(value).strip()
 
     @security.protected(permissions.ModifyPortalContent)
     def setMaternalLastname(self, value):
         if not isinstance(value, string_types):
             value = u""
         mutator = self.mutator("maternal_lastname")
-        mutator(self, api.safe_unicode(value.strip()))
+        mutator(self, api.safe_unicode(value).strip())
 
     @security.protected(permissions.View)
     def getFullname(self):
-        # Create the fullname from firstname + middlename + lastname + maternal_lastname
-        parts = [self.getFirstname(), self.getMiddlename(), self.getLastname(), self.getMaternalLastname()]
-        return " ".join(filter(None, parts))
+        # unicode, 4 partes, colapsando espacios
+        parts = [
+            self.getFirstname(),
+            self.getMiddlename(),
+            self.getLastname(),
+            self.getMaternalLastname(),
+        ]
+        text = u" ".join([p for p in parts if p])
+        return u" ".join(text.split())
 
     ###
     # EMAIL AND PHONE
@@ -703,8 +707,8 @@ class Patient(Container):
         """Get email with the field accessor
         """
         accessor = self.accessor("email")
-        value = accessor(self) or ""
-        return value.encode("utf-8")
+        value = accessor(self) or u""
+        return api.safe_unicode(value).strip()
 
     @security.protected(permissions.ModifyPortalContent)
     def setEmail(self, value):
@@ -713,7 +717,7 @@ class Patient(Container):
         if not isinstance(value, string_types):
             value = u""
         mutator = self.mutator("email")
-        mutator(self, api.safe_unicode(value.strip()))
+        mutator(self, api.safe_unicode(value).strip())
 
     @security.protected(permissions.View)
     def getAdditionalEmails(self):
@@ -734,7 +738,7 @@ class Patient(Container):
         """Get phone by the field accessor
         """
         accessor = self.accessor("phone")
-        return accessor(self) or ""
+        return accessor(self) or u""
 
     @security.protected(permissions.ModifyPortalContent)
     def setPhone(self, value):
@@ -743,7 +747,7 @@ class Patient(Container):
         if not isinstance(value, string_types):
             value = u""
         mutator = self.mutator("phone")
-        mutator(self, api.safe_unicode(value.strip()))
+        mutator(self, api.safe_unicode(value).strip())
 
     @security.protected(permissions.View)
     def getAdditionalPhoneNumbers(self):
@@ -835,7 +839,7 @@ class Patient(Container):
         """Set birthdate by the field accessor and update age"""
         mutator = self.mutator("birthdate")
         result = mutator(self, value)
-        
+
         # Calculate and set age after updating birthdate
         birthdate = self.getBirthdate()
         if birthdate:
@@ -845,7 +849,7 @@ class Patient(Container):
             except Exception:
                 # If saving fails (permissions), ignore to avoid breaking the flow
                 pass
-        
+
         return result
 
     @security.protected(permissions.View)
@@ -905,4 +909,3 @@ class Patient(Container):
         """
         mutator = self.mutator("estimated_birthdate")
         return mutator(self, value)
-
