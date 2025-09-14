@@ -1,6 +1,5 @@
 import $ from "jquery"
 
-
 class TemporaryIdentifierWidgetController
 
   constructor: ->
@@ -32,7 +31,7 @@ class TemporaryIdentifierWidgetController
     fields = document.querySelectorAll(".TemporaryIdentifier")
     fields.forEach (field, index) =>
       temporary = field.querySelector("input[name*='_temporary']")
-      if not temporary.checked
+      if not temporary?.checked
         return
 
       # uncheck temporary
@@ -52,14 +51,16 @@ class TemporaryIdentifierWidgetController
   ###
   set_patient_data: (el, data) =>
     record = {
-      "MedicalRecordNumber": "",
-      "PatientFullName.firstname": "",
-      "PatientFullName.lastname": "",
-      "PatientAddress": "",
-      "DateOfBirth.dob": "",
-      "Age": "",
-      "Sex": "",
-      "Gender": "",
+      "MedicalRecordNumber": ""
+      "PatientFullName.firstname": ""
+      "PatientFullName.middlename": ""
+      "PatientFullName.lastname": ""
+      "PatientFullName.maternal_lastname": ""
+      "PatientAddress": ""
+      "DateOfBirth.dob": ""
+      "Age": ""
+      "Sex": ""
+      "Gender": ""
     }
     record = Object.assign(record, data)
 
@@ -108,41 +109,34 @@ class TemporaryIdentifierWidgetController
 
     el = event.currentTarget
     mrn = event.detail.value
+    return if mrn == @auto_wildcard
 
-    if mrn == @auto_wildcard
-      return
-
-    el = event.currentTarget
-
-    # Search for an existing MRN
-    @search_patient {patient_mrn:mrn}
+    @search_patient {patient_mrn: mrn}
     .done (data) =>
       return unless data
 
-      # Generate a physical address line
-      physical_address = data.address[0]
+      # Generate a physical address line (robusto)
+      physical_address = (data.address ? [])[0] or {}
       address = [
-        physical_address.address,
-        physical_address.zip,
-        physical_address.city,
+        physical_address.address
+        physical_address.zip
+        physical_address.city
         physical_address.country
-      ].filter((value) -> value).join(", ")
+      ].filter((v) -> v).join(", ")
 
-      # Write back the physical address line for the template
-      data.address_line = address
-
-      # map patient fields -> Sample fields
-      record = {
-        "MedicalRecordNumber": data.mrn,
-        "PatientFullName.firstname": data.firstname,
-        "PatientFullName.lastname": data.lastname,
-        "PatientAddress": address,
-        "DateOfBirth.dob": @format_date(data.birthdate),
-        "Age": data.age,
-        "Sex": data.sex,
-        "Gender": data.gender,
-        "review_state": data.review_state,
-      }
+      # map patient fields -> Sample fields (con 4 apellidos/nombres)
+      record =
+        "MedicalRecordNumber": data.mrn
+        "PatientFullName.firstname": data.firstname or ""
+        "PatientFullName.middlename": data.middlename or ""
+        "PatientFullName.lastname": data.lastname or ""
+        "PatientFullName.maternal_lastname": data.maternal_lastname or ""
+        "PatientAddress": address
+        "DateOfBirth.dob": @format_date(data.birthdate)
+        "Age": data.age
+        "Sex": data.sex
+        "Gender": data.gender
+        "review_state": data.review_state
 
       @set_patient_data el, record
 
@@ -184,7 +178,7 @@ class TemporaryIdentifierWidgetController
    * Sets the value for an sibling field with specified base name
   ###
   set_sibling_value: (element, name, value) =>
-    @debug "°°° TemporaryIdentifierWidget::set_sibling_value:name=#{ name },value=#{ value } °°°"
+    @debug ">>> set #{ name } = #{ value }"
     subfield = ''
     if "." in name
       split = name.split "."
@@ -193,45 +187,38 @@ class TemporaryIdentifierWidgetController
 
     field = @get_sibling element, name, subfield
     return unless field
-    @debug ">>> #{ field.name } = #{ value } "
     @native_set_value field, value
 
   ###*
     * Set input value with native setter to support ReactJS components
   ###
   native_set_value: (input, value) =>
-    # https://stackoverflow.com/questions/23892547/what-is-the-best-way-to-trigger-onchange-event-in-react-js
-    # TL;DR: React library overrides input value setter
-
     setter = null
-    if input.tagName == "TEXTAREA"
+    if input?.tagName == "TEXTAREA"
       setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set
-    else if input.tagName == "SELECT"
+    else if input?.tagName == "SELECT"
       setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set
-    else if input.tagName == "INPUT"
+    else if input?.tagName == "INPUT"
       setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set
     else
-      input.value = value
+      input?.value = value
 
-    if setter
+    if setter and input
       setter.call(input, value)
-
-    evt = new Event("input", {bubbles: true})
-    input.dispatchEvent(evt)
+      evt = new Event("input", {bubbles: true})
+      input.dispatchEvent(evt)
 
   ###
    * Formats a date to yyyy-mm-dd
   ###
   format_date: (date_value) =>
-    if not date_value?
-      return ""
+    return "" unless date_value?
     d = new Date(date_value)
-    out = [
+    [
       d.getFullYear(),
       ('0' + (d.getMonth() + 1)).slice(-2),
       ('0' + d.getDate()).slice(-2),
-    ]
-    out.join('-')
+    ].join('-')
 
   ###
    * Search a patient with a specific query
@@ -240,14 +227,15 @@ class TemporaryIdentifierWidgetController
   search_patient: (query) =>
     @debug "°°° TemporaryIdentifierWidget::search_patient °°°"
 
-    # Grab the catalog name to search against
     catalog_name = document.querySelector('[name="config_catalog"]').value
 
-    # Fields to include on search results
+    # IMPORTANT: pedir también middlename y maternal_lastname
     fields = [
       "mrn"
       "firstname"
+      "middlename"
       "lastname"
+      "maternal_lastname"
       "age"
       "birthdate"
       "sex"
@@ -274,20 +262,14 @@ class TemporaryIdentifierWidgetController
     .done (data) ->
       object = {}
       if data.objects
-        # resolve with the first item of the list
         object = data.objects[0]
       return deferred.resolveWith this, [object]
 
     deferred.promise()
 
 
-  ###
-   * Ajax Submit with automatic event triggering and some sane defaults
-  ###
   ajax_submit: (options={}) =>
     @debug "°°° TemporaryIdentifierWidget::ajax_submit °°°"
-
-    # some sane option defaults
     options.type ?= "POST"
     options.url ?= @get_portal_url()
     options.context ?= this
@@ -300,22 +282,14 @@ class TemporaryIdentifierWidgetController
     $(this).trigger "ajax:submit:start"
     done = ->
       $(this).trigger "ajax:submit:end"
-    return $.ajax(options).done done
+    $.ajax(options).done done
 
 
-  ###
-   * Returns the portal url (calculated in code)
-  ###
   get_portal_url: =>
     url = $("input[name=portal_url]").val()
     return url or window.portal_url
 
-
-  ###
-   * Prints a debug message in console with this component name prefixed
-  ###
   debug: (message) =>
     console.debug "[senaite.patient.temporary_identifier_widget] ", message
-
 
 export default TemporaryIdentifierWidgetController
