@@ -26,53 +26,105 @@ from Products.Archetypes.Widget import TypesWidget
 
 
 class FullnameWidget(TypesWidget):
-    """A widget for the introduction of person name, either fullname or the
-    combination of firstname + lastname
+    """Widget para nombre completo en partes (4 campos):
+       firstname, middlename, lastname, maternal_lastname
     """
     security = ClassSecurityInfo()
+
     _properties = TypesWidget._properties.copy()
     _properties.update({
         "macro": "senaite_patient_widgets/fullnamewidget",
         "entry_mode": "parts",
-        # mantenemos la plantilla original para compatibilidad
-        "view_format": "%(firstname)s %(middlename)s %(lastname)s",
+        # IMPORTANTE: incluir la 4ª parte para vista/listados
+        "view_format": "%(firstname)s %(middlename)s %(lastname)s %(maternal_lastname)s",
         "size": "15",
     })
 
-    def process_form(self, instance, field, form, empty_marker=None,
-                     emptyReturnsMarker=False, validating=True):
+    # --- Helpers -------------------------------------------------------------
 
-        value = form.get(field.getName())
-        firstname = ""
-        middlename = ""
-        lastname = ""
-        maternal_lastname = ""  
+    def _strip(self, v):
+        return (v or "").strip()
 
+    def _normalize_parts(self, data):
+        """Devuelve SIEMPRE un dict con las 4 claves como strings."""
+        return {
+            "firstname": self._strip(data.get("firstname")),
+            "middlename": self._strip(data.get("middlename")),
+            "lastname": self._strip(data.get("lastname")),
+            "maternal_lastname": self._strip(data.get("maternal_lastname")),
+        }
+
+    # --- Guardado desde el formulario ---------------------------------------
+
+    def process_form(self, instance, field, form,
+                     empty_marker=None, emptyReturnsMarker=False, validating=True):
+        """Lee el valor del request y devuelve un dict normalizado con 4 claves."""
+        name = field.getName()
+        value = form.get(name)
+
+        # Archetypes a veces envía listas
         if isinstance(value, (list, tuple)):
-            value = value[0] or None
+            value = value[0] if value else None
 
-        # handle string as fullname direct entry
+        parts = {
+            "firstname": "",
+            "middlename": "",
+            "lastname": "",
+            "maternal_lastname": "",
+        }
+
+        # Modo "texto plano": repartir tokens de forma razonable
         if isinstance(value, six.string_types):
-            firstname = value.strip()
+            text = self._strip(value)
+            if text:
+                tokens = [t for t in text.split(" ") if t]
+                if len(tokens) == 1:
+                    parts["firstname"] = tokens[0]
+                elif len(tokens) == 2:
+                    parts["firstname"], parts["lastname"] = tokens
+                elif len(tokens) >= 3:
+                    parts["firstname"] = tokens[0]
+                    parts["lastname"] = tokens[-1]
+                    parts["middlename"] = " ".join(tokens[1:-1])
+            # maternal_lastname queda vacío salvo que venga en dict
 
-        elif value:
-            firstname = value.get("firstname", "").strip()
-            middlename = value.get("middlename", "").strip()
-            lastname = value.get("lastname", "").strip()
-            maternal_lastname = value.get("maternal_lastname", "").strip()  # capturado
+        # Modo "parts": viene un dict con subcampos
+        elif isinstance(value, dict):
+            parts["firstname"] = self._strip(value.get("firstname", ""))
+            parts["middlename"] = self._strip(value.get("middlename", ""))
+            parts["lastname"] = self._strip(value.get("lastname", ""))
+            # CLAVE: antes se solía ignorar; aquí sí lo recogemos
+            parts["maternal_lastname"] = self._strip(value.get("maternal_lastname", ""))
 
-        # Allow non-required fields
-        if not any([firstname, lastname, maternal_lastname]):
+        # Permitir campos no requeridos: si no hay nada significativo, no guardar
+        if not any([parts["firstname"], parts["lastname"], parts["maternal_lastname"]]):
             return None, {}
 
-        output = {
-            "firstname": firstname,
-            "middlename": middlename,
-            "lastname": lastname,
-            "maternal_lastname": maternal_lastname,  # guardado sin romper PT
-        }
-        return output, {}
+        return self._normalize_parts(parts), {}
+
+    # --- Renderizado para vista/listados ------------------------------------
+
+    security = ClassSecurityInfo()
+    security.declarePublic("render_view_value")
+    def render_view_value(self, value, **kwargs):
+        """Formatea para vista usando view_format incluyendo la 4ª parte.
+           Si llega un string (datos antiguos), lo devuelve tal cual.
+        """
+        if isinstance(value, basestring):
+            return value
+
+        value = value or {}
+        parts = self._normalize_parts(value)
+        view_format = self._properties.get("view_format") or \
+            "%(firstname)s %(middlename)s %(lastname)s %(maternal_lastname)s"
+
+        rendered = view_format % parts
+        # Compactar espacios en blanco por subcampos vacíos
+        rendered = " ".join([t for t in rendered.split(" ") if t])
+        return rendered
 
 
-registerWidget(FullnameWidget, title="FullnameWidget")
-
+registerWidget(
+    FullnameWidget,
+    title="FullnameWidget",
+)
