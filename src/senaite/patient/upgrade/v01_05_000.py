@@ -25,7 +25,6 @@ from senaite.patient.config import PRODUCT_NAME
 from senaite.patient.setuphandlers import setup_catalog_mappings
 from senaite.patient.setuphandlers import setup_catalogs
 
-# ⇓ añadidos para sincronizar columnas e indexar pacientes
 from bika.lims import api
 try:
     # Disponible desde 1.5.x
@@ -37,63 +36,92 @@ version = "1.5.0"
 profile = "profile-{0}:default".format(PRODUCT_NAME)
 
 
+def _sync_patient_catalog(portal):
+    """Asegura índices/columnas del catálogo de pacientes."""
+    setup_catalogs(portal)  # declara índices/columnas definidos por el add-on
+    if PatientCatalog is not None:
+        # idempotente: agrega columnas faltantes sin borrar existentes
+        cat = api.get_tool("senaite_catalog_patient")
+        PatientCatalog().setup(cat)
+    logger.info("Patient catalog synchronized (indexes/columns)")
+
+
+def _update_catalog_mappings(portal):
+    """Actualiza mapeos registro↔catálogos en senaite.core."""
+    setup_catalog_mappings(portal)
+    logger.info("Catalog mappings updated")
+
+
+def _reindex_patients_metadata_only(portal):
+    """Reindexa SOLO metadata de Patient (sin manage_catalogRebuild)."""
+    patients_folder = getattr(portal, "patients", None)
+    if patients_folder:
+        for obj in patients_folder.objectValues():
+            try:
+                obj.reindexObject(idxs=[], update_metadata=True)
+            except Exception:
+                pass
+    else:
+        pc = api.get_tool("portal_catalog")
+        for brain in pc(portal_type="Patient"):
+            try:
+                brain.getObject().reindexObject(idxs=[], update_metadata=True)
+            except Exception:
+                pass
+    logger.info("Patient objects reindexed (metadata only)")
+
+
+# ---- Handlers referenciados por ZCML (necesarios para arrancar) ----
+
+def upgrade_catalog_indexes(tool):
+    """Handler ZCML: añade/sincroniza índices y metadata del catálogo."""
+    portal = tool.aq_inner.aq_parent
+    _sync_patient_catalog(portal)
+
+
+def import_registry(tool):
+    """Handler ZCML: reimporta plone.app.registry del perfil de producto."""
+    portal = tool.aq_inner.aq_parent
+    setup = portal.portal_setup
+    setup.runImportStepFromProfile(profile, "plone.app.registry")
+    logger.info("plone.app.registry reimported")
+
+
+def update_catalog_mappings(tool):
+    """Handler ZCML: actualiza mapeos de catálogos (nombre exacto requerido)."""
+    portal = tool.aq_inner.aq_parent
+    _update_catalog_mappings(portal)
+
+
+# ---- Upgrade “todo en uno” (si lo usas desde portal_setup) ----
+
 @upgradestep(PRODUCT_NAME, version)
 def upgrade(tool):
-    """Upgrade principal a 1.5.0:
-    - Sincroniza el catálogo de pacientes (indexes + metadata columns)
-    - Actualiza los mapeos de catálogos
-    - Reindexa únicamente objetos Patient (sin manage_catalogRebuild)
-    """
+    """Upgrade principal 1.5.0: sincroniza catálogo, mappings y reindexa pacientes."""
     portal = tool.aq_inner.aq_parent
     ut = UpgradeUtils(portal)
     ver_from = ut.getInstalledVersion(PRODUCT_NAME)
 
     if ut.isOlderVersion(PRODUCT_NAME, version):
-        logger.info("Skipping upgrade of {0}: {1} > {2}".format(
-            PRODUCT_NAME, ver_from, version))
+        logger.info("Skipping upgrade of %s: %s > %s", PRODUCT_NAME, ver_from, version)
         return True
 
-    logger.info("Upgrading {0}: {1} -> {2}".format(
-        PRODUCT_NAME, ver_from, version))
+    logger.info("Upgrading %s: %s -> %s", PRODUCT_NAME, ver_from, version)
 
-    # 1) (Re)configura el catálogo de pacientes e índices
     try:
-        setup_catalogs(portal)  # asegura índices/columnas declaradas por el add-on
-        if PatientCatalog is not None:
-            cat = api.get_tool("senaite_catalog_patient")
-            # idempotente: agrega columnas faltantes sin borrar existentes
-            PatientCatalog().setup(cat)
-        logger.info("Patient catalog synchronized (indexes/columns)")
+        _sync_patient_catalog(portal)
     except Exception as e:
         logger.warn("Could not synchronize patient catalog: %r", e)
 
-    # 2) Actualiza los mapeos de registros ↔ catálogos
     try:
-        setup_catalog_mappings(portal)
+        _update_catalog_mappings(portal)
     except Exception as e:
         logger.warn("Could not update catalog mappings: %r", e)
 
-    # 3) Reindexa SOLO pacientes (evita encolar herramientas/catálogos)
     try:
-        patients_folder = getattr(portal, "patients", None)
-        if patients_folder:
-            for obj in patients_folder.objectValues():
-                try:
-                    # solo metadata; los índices se recalculan si hace falta
-                    obj.reindexObject(idxs=[], update_metadata=True)
-                except Exception:
-                    pass
-        else:
-            # fallback: busca por portal_type Patient
-            pc = api.get_tool("portal_catalog")
-            for brain in pc(portal_type="Patient"):
-                try:
-                    brain.getObject().reindexObject(idxs=[], update_metadata=True)
-                except Exception:
-                    pass
-        logger.info("Patient objects reindexed")
+        _reindex_patients_metadata_only(portal)
     except Exception as e:
         logger.warn("Could not reindex Patient objects: %r", e)
 
-    logger.info("{0} upgraded to version {1}".format(PRODUCT_NAME, version))
+    logger.info("%s upgraded to version %s", PRODUCT_NAME, version)
     return True
