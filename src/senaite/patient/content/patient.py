@@ -552,6 +552,19 @@ class Patient(Container):
         mutator = self.mutator("mrn")
         return mutator(self, api.safe_unicode(value))
 
+    # 🔹 NUEVO MÉTODO: compatibilidad con senaite.core
+    @security.protected(permissions.View)
+    def getMedicalRecordNumberValue(self):
+        """Compatibility accessor used by listings/widgets.
+        Returns the same MRN as getMRN().
+        """
+        try:
+            return self.getMRN()
+        except Exception:
+            accessor = self.accessor("mrn")
+            value = accessor(self) or u""
+            return api.safe_unicode(value)
+
     @security.protected(permissions.View)
     def getIdentifiers(self):
         """Returns the identifiers with the field accessor
