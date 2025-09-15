@@ -33,7 +33,7 @@ from zope.component import adapts
 from zope.component import getMultiAdapter
 from zope.interface import implements
 
-
+# Statuses to add. List of dicts
 ADD_STATUSES = [{
     "id": "temp_mrn",
     "title": _("Temporary MRN"),
@@ -48,6 +48,7 @@ ADD_STATUSES = [{
 },
 ]
 
+# Columns to add
 ADD_COLUMNS = [
     ("Patient", {
         "title": _("Patient"),
@@ -64,8 +65,7 @@ ADD_COLUMNS = [
 
 
 class SamplesListingAdapter(object):
-    """Generic adapter for sample listings
-    """
+    """Generic adapter for sample listings"""
     adapts(IListingView)
     implements(IListingViewAdapter)
 
@@ -88,28 +88,22 @@ class SamplesListingAdapter(object):
     @property
     @memoize
     def show_icon_temp_mrn(self):
+        """Returns whether an alert icon has to be displayed next to the sample
+        id when the Patient assigned to the sample has a temporary MRN"""
         return api.get_registry_record("senaite.patient.show_icon_temp_mrn")
 
-    # 🔹 Nuevo: método robusto para MRN
     def getMedicalRecordNumberValue(self, obj, item=None, **kw):
-        try:
-            real = obj.getObject() if hasattr(obj, "getObject") else obj
-        except Exception:
-            real = obj
-
-        # fallback si es RequestContainer
-        if real.__class__.__name__ == "RequestContainer":
-            real = getattr(real, "context", real)
-
+        """Return MRN value safely from the sample or its patient"""
         mrn = u""
-        patient = None
+        real = obj.getObject() if hasattr(obj, "getObject") else obj
 
+        patient = None
         if hasattr(real, "getPatient"):
             try:
                 patient = real.getPatient()
             except Exception:
                 patient = None
-        if not patient and hasattr(real, "getContact"):
+        elif hasattr(real, "getContact"):
             try:
                 patient = real.getContact()
             except Exception:
@@ -122,7 +116,7 @@ class SamplesListingAdapter(object):
                 mrn = u""
 
         if not mrn:
-            getter = getattr(real, "getMedicalRecordNumber", None)
+            getter = getattr(real, "getMedicalRecordNumberValue", None)
             if callable(getter):
                 try:
                     mrn = getter() or u""
@@ -133,26 +127,27 @@ class SamplesListingAdapter(object):
 
     @check_installed(None)
     def folder_item(self, obj, item, index):
-        # Icono de MRN temporal
+        # Show icon for temporary MRN
+        is_temp = False
         checker = getattr(obj, "isMedicalRecordTemporary", None)
-        is_temp = callable(checker) and checker()
+        try:
+            is_temp = checker() if callable(checker) else bool(checker)
+        except Exception:
+            is_temp = False
+
         if self.show_icon_temp_mrn and is_temp:
             after_icons = item["after"].get("getId", "")
             kwargs = {"width": 16, "title": _("Temporary MRN")}
             after_icons += self.icon_tag("id-card-red", **kwargs)
             item["after"]["getId"] = after_icons
 
-        # MRN con método robusto
+        # Get MRN safely
         sample_patient_mrn = self.getMedicalRecordNumberValue(obj, item=item)
         item["MRN"] = sample_patient_mrn
 
-        # Obtener paciente
+        # Get the Patient object
         patient = None
-        try:
-            real = obj.getObject() if hasattr(obj, "getObject") else obj
-        except Exception:
-            real = obj
-
+        real = obj.getObject() if hasattr(obj, "getObject") else obj
         if hasattr(real, "getPatient"):
             try:
                 patient = real.getPatient()
@@ -166,7 +161,7 @@ class SamplesListingAdapter(object):
             item["Patient"] = _("(No patient)")
             return
 
-        # 🔹 Nombre completo desde getFullname (4 campos)
+        # Use full name with 4 fields (your customization)
         patient_fullname = patient.getFullname() if hasattr(patient, "getFullname") else api.safe_unicode(patient.Title())
         patient_url = api.get_url(patient)
         patient_view_url = "{}/@@view".format(patient_url)
