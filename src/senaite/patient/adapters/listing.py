@@ -33,7 +33,7 @@ from zope.component import adapts
 from zope.component import getMultiAdapter
 from zope.interface import implements
 
-# Statuses to add. List of dicts
+
 ADD_STATUSES = [{
     "id": "temp_mrn",
     "title": _("Temporary MRN"),
@@ -48,7 +48,6 @@ ADD_STATUSES = [{
 },
 ]
 
-# Columns to add
 ADD_COLUMNS = [
     ("Patient", {
         "title": _("Patient"),
@@ -70,7 +69,6 @@ class SamplesListingAdapter(object):
     adapts(IListingView)
     implements(IListingViewAdapter)
 
-    # Priority order of this adapter over others
     priority_order = 99999
 
     def __init__(self, listing, context):
@@ -90,47 +88,93 @@ class SamplesListingAdapter(object):
     @property
     @memoize
     def show_icon_temp_mrn(self):
-        """Returns whether an alert icon has to be displayed next to the sample
-        id when the Patient assigned to the sample has a temporary Medical
-        Record Number (MRN)
-        """
         return api.get_registry_record("senaite.patient.show_icon_temp_mrn")
+
+    # 🔹 Nuevo: método robusto para MRN
+    def getMedicalRecordNumberValue(self, obj, item=None, **kw):
+        try:
+            real = obj.getObject() if hasattr(obj, "getObject") else obj
+        except Exception:
+            real = obj
+
+        # fallback si es RequestContainer
+        if real.__class__.__name__ == "RequestContainer":
+            real = getattr(real, "context", real)
+
+        mrn = u""
+        patient = None
+
+        if hasattr(real, "getPatient"):
+            try:
+                patient = real.getPatient()
+            except Exception:
+                patient = None
+        if not patient and hasattr(real, "getContact"):
+            try:
+                patient = real.getContact()
+            except Exception:
+                patient = None
+
+        if patient and hasattr(patient, "getMRN"):
+            try:
+                mrn = patient.getMRN() or u""
+            except Exception:
+                mrn = u""
+
+        if not mrn:
+            getter = getattr(real, "getMedicalRecordNumber", None)
+            if callable(getter):
+                try:
+                    mrn = getter() or u""
+                except Exception:
+                    mrn = u""
+
+        return api.to_utf8(mrn) if mrn else u""
 
     @check_installed(None)
     def folder_item(self, obj, item, index):
-        if self.show_icon_temp_mrn and obj.isMedicalRecordTemporary:
-            # Add an icon after the sample ID
+        # Icono de MRN temporal
+        checker = getattr(obj, "isMedicalRecordTemporary", None)
+        is_temp = callable(checker) and checker()
+        if self.show_icon_temp_mrn and is_temp:
             after_icons = item["after"].get("getId", "")
             kwargs = {"width": 16, "title": _("Temporary MRN")}
             after_icons += self.icon_tag("id-card-red", **kwargs)
-            item["after"].update({"getId": after_icons})
+            item["after"]["getId"] = after_icons
 
-        # Siempre guardamos el MRN del sample
-        sample_patient_mrn = api.to_utf8(
-            obj.getMedicalRecordNumberValue, default="")
-
+        # MRN con método robusto
+        sample_patient_mrn = self.getMedicalRecordNumberValue(obj, item=item)
         item["MRN"] = sample_patient_mrn
 
-        # Obtener el objeto Patient real
-        patient = self.get_patient_by_mrn(sample_patient_mrn)
+        # Obtener paciente
+        patient = None
+        try:
+            real = obj.getObject() if hasattr(obj, "getObject") else obj
+        except Exception:
+            real = obj
+
+        if hasattr(real, "getPatient"):
+            try:
+                patient = real.getPatient()
+            except Exception:
+                patient = None
+
+        if not patient and sample_patient_mrn:
+            patient = self.get_patient_by_mrn(sample_patient_mrn)
 
         if not patient:
-            # Fallback si no hay paciente asociado
             item["Patient"] = _("(No patient)")
             return
 
-        # 🔹 Usar siempre getFullname() del paciente (los 4 campos)
-        patient_fullname = patient.getFullname()
+        # 🔹 Nombre completo desde getFullname (4 campos)
+        patient_fullname = patient.getFullname() if hasattr(patient, "getFullname") else api.safe_unicode(patient.Title())
         patient_url = api.get_url(patient)
-
-        # Linkeamos el nombre completo del paciente
         patient_view_url = "{}/@@view".format(patient_url)
-        item["Patient"] = get_link(patient_view_url, patient_fullname)
 
-        # Linkeamos también el MRN
+        item.setdefault("replace", {})
+        item["Patient"] = get_link(patient_view_url, patient_fullname)
         if sample_patient_mrn:
-            item["replace"]["MRN"] = get_link(
-                patient_url, sample_patient_mrn)
+            item["replace"]["MRN"] = get_link(patient_url, sample_patient_mrn)
 
     @viewcache
     def get_patient_by_mrn(self, mrn):
@@ -142,10 +186,8 @@ class SamplesListingAdapter(object):
 
     @check_installed(None)
     def before_render(self):
-        # Additional columns
         rv_keys = map(lambda r: r["id"], self.listing.review_states)
         for column_id, column_values in ADD_COLUMNS:
-            # skip MRN column for patient context
             if column_id == "MRN" and self.is_patient_context():
                 continue
             add_column(
@@ -155,10 +197,8 @@ class SamplesListingAdapter(object):
                 after=column_values.get("after", None),
                 review_states=rv_keys)
 
-        # Add review_states
         for status in ADD_STATUSES:
             sid = status.get("id")
-            # skip temporary MRN for patient context
             if sid == "temp_mrn" and self.is_patient_context():
                 continue
             after = status.get("after", None)
@@ -168,6 +208,4 @@ class SamplesListingAdapter(object):
             add_review_state(self.listing, status, after=after, before=before)
 
     def is_patient_context(self):
-        """Check if the current context is a patient
-        """
         return api.get_portal_type(self.context) == "Patient"
