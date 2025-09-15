@@ -552,12 +552,9 @@ class Patient(Container):
         mutator = self.mutator("mrn")
         return mutator(self, api.safe_unicode(value))
 
-    # 🔹 NUEVO MÉTODO: compatibilidad con senaite.core
+    # Compat accessor used by listings/widgets.
     @security.protected(permissions.View)
     def getMedicalRecordNumberValue(self):
-        """Compatibility accessor used by listings/widgets.
-        Returns the same MRN as getMRN().
-        """
         try:
             return self.getMRN()
         except Exception:
@@ -674,13 +671,15 @@ class Patient(Container):
         mutator(self, api.safe_unicode(value).strip())
 
     @security.protected(permissions.View)
-    def getLastname(self):
+    def getPaternalLastname(self):
+        """Accessor for the stored paternal/primary lastname field only."""
         accessor = self.accessor("lastname")
         value = accessor(self) or u""
         return api.safe_unicode(value).strip()
 
     @security.protected(permissions.ModifyPortalContent)
     def setLastname(self, value):
+        """Mutator for the stored paternal/primary lastname field."""
         if not isinstance(value, string_types):
             value = u""
         mutator = self.mutator("lastname")
@@ -700,12 +699,22 @@ class Patient(Container):
         mutator(self, api.safe_unicode(value).strip())
 
     @security.protected(permissions.View)
+    def getLastname(self):
+        """Helper that returns both lastnames joined (compat-friendly)."""
+        parts = [self.getPaternalLastname(), self.getMaternalLastname()]
+        text = u" ".join([p for p in parts if p])
+        return u" ".join(text.split())
+
+    # Alias for backward compatibility
+    getSurname = getLastname
+
+    @security.protected(permissions.View)
     def getFullname(self):
         # unicode, 4 partes, colapsando espacios
         parts = [
             self.getFirstname(),
             self.getMiddlename(),
-            self.getLastname(),
+            self.getPaternalLastname(),
             self.getMaternalLastname(),
         ]
         text = u" ".join([p for p in parts if p])
@@ -922,3 +931,4 @@ class Patient(Container):
         """
         mutator = self.mutator("estimated_birthdate")
         return mutator(self, value)
+
