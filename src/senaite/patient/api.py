@@ -44,9 +44,7 @@ CLIENT_VIEW_ACTION = {
     "condition": "",
 }
 
-YMD_REGEX = r'^((?P<y>(\d+))y){0,1}\s*' \
-            r'((?P<m>(\d+))m){0,1}\s*' \
-            r'((?P<d>(\d+))d){0,1}\s*'
+YMD_REGEX = r'^((?P<y>(\d+))y){0,1}\s*' \            r'((?P<m>(\d+))m){0,1}\s*' \            r'((?P<d>(\d+))d){0,1}\s*'
 
 _marker = object()
 
@@ -61,15 +59,42 @@ def is_patient_required():
     return True
 
 
+# -----------------------------
+# Name assembly configuration
+# -----------------------------
+
 def get_patient_name_entry_mode():
-    """Returns the entry mode for patient name
+    """Returns the entry mode for patient name.
+
+    Supported (normalized) keys:
+      - "parts" ................ 4 campos: firstname, middlename, lastname, maternal_lastname
+      - "first_last" ........... nombre + apellidos (apellidos = last + maternal)
+      - "first_middle_last" .... nombre + segundo nombre + apellidos
+      - "fullname" ............. un solo campo (usa patient.Title()/getFullname())
+
+    The registry may store legacy aliases like:
+      - "name_surnames", "first_surnames"  -> first_last
+      - "name_middle_surnames"               -> first_middle_last
+
+    Default: "parts"
     """
-    entry_mode = api.get_registry_record(
-        "senaite.patient.patient_entry_mode")
+    entry_mode = api.get_registry_record("senaite.patient.patient_entry_mode")
     if not entry_mode:
-        # Default to firstname + fullname
-        entry_mode = "parts"
-    return entry_mode
+        return "parts"
+    key = api.safe_unicode(entry_mode).strip().lower()
+
+    aliases = {
+        u"name_surnames": u"first_last",
+        u"first_surnames": u"first_last",
+        u"name_middle_surnames": u"first_middle_last",
+        u"first_middle_surnames": u"first_middle_last",
+        u"first_lastname": u"first_last",
+    }
+    key = aliases.get(key, key)
+    if key not in {u"parts", u"first_last", u"first_middle_last", u"fullname"}:
+        # be defensive, fall back to parts
+        key = u"parts"
+    return key
 
 
 def get_patient_address_format():
@@ -151,13 +176,16 @@ def patient_search(query):
 
 
 def update_patient(patient, **values):
-    """Create a new patient
+    """Update an existing patient with explicit values and reindex
     """
     # set values explicitly
     patient.setMRN(values.get("mrn", api.get_id(patient)))
     patient.setFirstname(values.get("firstname", ""))
     patient.setMiddlename(values.get("middlename", ""))
     patient.setLastname(values.get("lastname", ""))
+    # ensure maternal lastname is handled
+    if hasattr(patient, "setMaternalLastname"):
+        patient.setMaternalLastname(values.get("maternal_lastname", ""))
     patient.setSex(values.get("sex", ""))
     patient.setGender(values.get("gender", ""))
     patient.setBirthdate(values.get("birthdate"))
@@ -433,3 +461,71 @@ def is_mrn_unique(mrn):
     }
     brains = api.search(query, PATIENT_CATALOG)
     return len(brains) == 0
+
+
+# -----------------------------
+#   Name helpers (centralized)
+# -----------------------------
+
+def _join_clean(parts):
+    """Join non-empty unicode parts with single spaces (collapsing)."""
+    parts = [api.safe_unicode(p).strip() for p in parts if p]
+    text = u" ".join(parts)
+    # collapse duplicate whitespace
+    return u" ".join(text.split())
+
+
+def get_patient_lastname(patient):
+    """Return combined surnames (lastname + maternal_lastname)."""
+    last_ = getattr(patient, 'getLastname', lambda: u"")() or u""
+    mat_ = getattr(patient, 'getMaternalLastname', lambda: u"")() or u""
+    return _join_clean([last_, mat_])
+
+
+def get_patient_fullname(patient, mode=None):
+    """Return displayable full name according to configured entry mode.
+
+    - parts: firstname + middlename + lastname + maternal_lastname
+    - first_last: firstname + (lastname + maternal_lastname)
+    - first_middle_last: firstname + middlename + (lastname + maternal_lastname)
+    - fullname: fallback to patient.Title() or patient.getFullname() if present
+
+    If patient exposes getFullname() that already returns the 4-part name,
+    this function will match that output for the corresponding modes.
+    """
+    # normalize mode
+    if mode is None:
+        mode = get_patient_name_entry_mode()
+
+    first = getattr(patient, 'getFirstname', lambda: u"")() or u""
+    middle = getattr(patient, 'getMiddlename', lambda: u"")() or u""
+    surnames = get_patient_lastname(patient)
+
+    if mode == u"parts" or mode == u"first_middle_last":
+        # parts shows all 4; first_middle_last is effectively the same render
+        # because surnames is already both lastnames
+        return _join_clean([first, middle, surnames])
+
+    if mode == u"first_last":
+        return _join_clean([first, surnames])
+
+    if mode == u"fullname":
+        # Try object-level Fullname/Title for backward compatibility
+        if hasattr(patient, 'getFullname'):
+            try:
+                val = patient.getFullname()
+                if val:
+                    return api.safe_unicode(val).strip()
+            except Exception:
+                pass
+        if hasattr(patient, 'Title'):
+            try:
+                return api.safe_unicode(patient.Title()).strip()
+            except Exception:
+                pass
+        # fallback to two-part
+        return _join_clean([first, surnames])
+
+    # default fallback
+    return _join_clean([first, middle, surnames])
+
