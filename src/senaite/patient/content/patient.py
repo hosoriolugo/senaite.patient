@@ -931,4 +931,3 @@ class Patient(Container):
         """
         mutator = self.mutator("estimated_birthdate")
         return mutator(self, value)
-
