@@ -99,7 +99,7 @@ MedicalRecordNumberField = TemporaryIdentifierField(
             {"name": "maternal_lastname", "width": "15", "align": "left", "label": _(u"Maternal Lastname")},
             {"name": "getLocalizedBirthdate", "width": "15", "align": "left", "label": _(u"Birthdate")},
         ],
-        # 🔹 Nuevo: mapeo explícito de columnas -> campos
+        # Column -> field mapping so a row click fills AR fields
         column_mappings={
             "firstname": "PatientFirstName",
             "middlename": "PatientMiddleName",
@@ -121,8 +121,10 @@ PatientFullNameField = FullnameField(
     write_permission=FieldEditFullName,
     widget=FullnameWidget(
         label=_("Patient name"),
+        # The entry mode is set dynamically in the SchemaModifier (parts/fullname/firstname_lastname),
+        # default to "parts" (4 components) for safety.
         entry_mode="parts",
-        # 🔹 Mostramos todas las partes
+        # Always display all available parts when rendering
         view_format="%(firstname)s %(middlename)s %(lastname)s %(maternal_lastname)s",
         render_own_label=True,
         visible={
@@ -188,7 +190,7 @@ GenderField = ExtStringField(
     ),
 )
 
-# Nuevos campos agregados
+# Optional extra fields
 PatientWeightField = ExtStringField(
     "PatientWeight",
     required=False,
@@ -259,11 +261,12 @@ class AnalysisRequestSchemaModifier(object):
             field = schema.get(fieldname)
             field.required = required
 
+        # Keep native behavior: drive the AR fullname widget by registry
         entry_mode = get_patient_name_entry_mode()
         fullname_field = schema.get("PatientFullName")
         fullname_field.widget.entry_mode = entry_mode
 
-        # Ajuste de label DoB
+        # Label for DoB field depending on age support
         field = schema.get("DateOfBirth")
         if is_age_supported():
             field.widget.label = _("Age / Date of birth")
@@ -271,3 +274,4 @@ class AnalysisRequestSchemaModifier(object):
             field.widget.label = _("Date of birth")
 
         return schema
+
