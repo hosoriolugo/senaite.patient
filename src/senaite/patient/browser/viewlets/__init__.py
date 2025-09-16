@@ -22,49 +22,55 @@ from plone.app.layout.viewlets import ViewletBase
 from Products.Five.browser.pagetemplatefile import ViewPageTemplateFile
 from bika.lims.interfaces import IAnalysisRequest
 from senaite.patient import api
+from senaite.patient.interfaces import IPatient
+
+
+def get_patient_from_context(context):
+    """Devuelve el paciente desde un AR o directamente.
+    Wrapper de compatibilidad porque senaite.patient.api no define get_patient().
+    """
+    # Si es un AnalysisRequest, intenta con PatientID
+    if IAnalysisRequest.providedBy(context):
+        mrn = getattr(context, "PatientID", None)
+        if mrn:
+            return api.get_patient_by_mrn(mrn)
+        return None
+
+    # Si ya es un Patient
+    if IPatient.providedBy(context):
+        return context
+
+    return None
+
 
 class TemporaryMRNViewlet(ViewletBase):
-    """ Print a viewlet to display a message stating the Medical Record Number
-    assigned to the current Sample is Temporary
-    """
+    """Muestra un aviso cuando el MRN asignado a la muestra es temporal."""
+
     index = ViewPageTemplateFile("templates/temporary_mrn_viewlet.pt")
 
     def __init__(self, context, request, view, manager=None):
         super(TemporaryMRNViewlet, self).__init__(
-            context, request, view, manager=manager)
+            context, request, view, manager=manager
+        )
         self.context = context
         self.request = request
         self.view = view
 
     def is_visible(self):
-        """Returns whether this viewlet must be visible or not
-        """
-        # PRIMERO: Verificar el tipo de contexto
-        from bika.lims.interfaces import IAnalysisRequest
-        from senaite.patient.interfaces import IPatient
-        
-        # Si el contexto es AnalysisRequest, obtener el paciente
-        if IAnalysisRequest.providedBy(self.context):
-            # Usar la API en lugar de getPatient() directo
-            patient = api.get_patient(self.context)
-            if patient and hasattr(patient, 'getTemporary'):
-                return patient.getTemporary()
-        
-        # Si el contexto es Patient directamente
-        if IPatient.providedBy(self.context):
-            if hasattr(self.context, 'getTemporary'):
-                return self.context.getTemporary()
-        
-        # Si es RequestContainer u otro tipo, intentar obtener el contexto real
+        """Determina si el viewlet debe mostrarse o no."""
+
+        # Caso 1: contexto directo
+        patient = get_patient_from_context(self.context)
+        if patient and hasattr(patient, "getTemporary"):
+            return patient.getTemporary()
+
+        # Caso 2: contexto desde la vista
         try:
-            # Intentar obtener el contexto desde la vista
-            if hasattr(self.view, 'context'):
-                real_context = self.view.context
-                if IAnalysisRequest.providedBy(real_context):
-                    patient = api.get_patient(real_context)
-                    if patient and hasattr(patient, 'getTemporary'):
-                        return patient.getTemporary()
-        except:
+            if hasattr(self.view, "context"):
+                patient = get_patient_from_context(self.view.context)
+                if patient and hasattr(patient, "getTemporary"):
+                    return patient.getTemporary()
+        except Exception:
             pass
-        
+
         return False
