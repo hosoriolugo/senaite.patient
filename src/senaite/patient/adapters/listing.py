@@ -33,7 +33,10 @@ from zope.component import adapts
 from zope.component import getMultiAdapter
 from zope.interface import implements
 
-# Statuses to add. List of dicts
+# ---------------------------------------------------------------------------
+# Columnas y estados adicionales
+# ---------------------------------------------------------------------------
+
 ADD_STATUSES = [{
     "id": "temp_mrn",
     "title": _("Temporary MRN"),
@@ -45,10 +48,8 @@ ADD_STATUSES = [{
     "before": "to_be_verified",
     "transitions": [],
     "custom_transitions": [],
-},
-]
+}]
 
-# Columns to add
 ADD_COLUMNS = [
     ("Patient", {
         "title": _("Patient"),
@@ -65,7 +66,7 @@ ADD_COLUMNS = [
 
 
 class SamplesListingAdapter(object):
-    """Generic adapter for sample listings"""
+    """Adapter de listado de Samples con columnas MRN/Patient e icono de MRN temporal."""
     adapts(IListingView)
     implements(IListingViewAdapter)
 
@@ -75,6 +76,9 @@ class SamplesListingAdapter(object):
         self.listing = listing
         self.context = context
 
+    # -----------------------------------------------------------------------
+    # Utilidades de tema / iconos
+    # -----------------------------------------------------------------------
     @property
     @memoize
     def senaite_theme(self):
@@ -85,25 +89,31 @@ class SamplesListingAdapter(object):
     def icon_tag(self, name, **kwargs):
         return self.senaite_theme.icon_tag(name, **kwargs)
 
+    # -----------------------------------------------------------------------
+    # Preferencias
+    # -----------------------------------------------------------------------
     @property
     @memoize
     def show_icon_temp_mrn(self):
-        """Returns whether an alert icon has to be displayed next to the sample
-        id when the Patient assigned to the sample has a temporary MRN"""
+        """Mostrar icono de alerta si el MRN del paciente es temporal."""
         return api.get_registry_record("senaite.patient.show_icon_temp_mrn")
 
+    # -----------------------------------------------------------------------
+    # Helpers MRN seguros
+    # -----------------------------------------------------------------------
     def getMedicalRecordNumberValue(self, obj, item=None, **kw):
-        """Return MRN value safely from the sample or its patient"""
+        """Devuelve el MRN de forma segura desde el Sample real o su Patient."""
         mrn = u""
         real = obj.getObject() if hasattr(obj, "getObject") else obj
 
+        # 1) Intentar desde el Patient
         patient = None
         if hasattr(real, "getPatient"):
             try:
                 patient = real.getPatient()
             except Exception:
                 patient = None
-        elif hasattr(real, "getContact"):
+        elif hasattr(real, "getContact"):  # compat
             try:
                 patient = real.getContact()
             except Exception:
@@ -115,23 +125,32 @@ class SamplesListingAdapter(object):
             except Exception:
                 mrn = u""
 
+        # 2) Intentar desde el accessor del Sample (si existe y no es container)
         if not mrn:
             getter = getattr(real, "getMedicalRecordNumberValue", None)
-            if callable(getter):
+            if getter is not None:
                 try:
-                    mrn = getter() or u""
+                    mrn = getter() if callable(getter) else getter
+                    mrn = mrn or u""
                 except Exception:
                     mrn = u""
 
         return api.to_utf8(mrn) if mrn else u""
 
+    # -----------------------------------------------------------------------
+    # Hook principal por fila del listado
+    # -----------------------------------------------------------------------
     @check_installed(None)
     def folder_item(self, obj, item, index):
-        # Show icon for temporary MRN
+        """Completa columnas Patient/MRN y añade icono de MRN temporal."""
+        # Asegurar objeto real (evitar RequestContainer)
+        real = obj.getObject() if hasattr(obj, "getObject") else obj
+
+        # 1) Icono "Temporary MRN"
         is_temp = False
-        checker = getattr(obj, "isMedicalRecordTemporary", None)
+        flag = getattr(real, "isMedicalRecordTemporary", False)
         try:
-            is_temp = checker() if callable(checker) else bool(checker)
+            is_temp = flag() if callable(flag) else bool(flag)
         except Exception:
             is_temp = False
 
@@ -141,28 +160,32 @@ class SamplesListingAdapter(object):
             after_icons += self.icon_tag("id-card-red", **kwargs)
             item["after"]["getId"] = after_icons
 
-        # Get MRN safely
+        # 2) MRN seguro
         sample_patient_mrn = self.getMedicalRecordNumberValue(obj, item=item)
         item["MRN"] = sample_patient_mrn
 
-        # Get the Patient object
+        # 3) Resolver el Patient
         patient = None
-        real = obj.getObject() if hasattr(obj, "getObject") else obj
         if hasattr(real, "getPatient"):
             try:
                 patient = real.getPatient()
             except Exception:
                 patient = None
 
+        # Si no hay Patient pero sí MRN, buscar por MRN
         if not patient and sample_patient_mrn:
             patient = self.get_patient_by_mrn(sample_patient_mrn)
 
+        # Si no hay Patient -> "(No patient)"
         if not patient:
             item["Patient"] = _("(No patient)")
             return
 
-        # Use full name with 4 fields (your customization)
-        patient_fullname = patient.getFullname() if hasattr(patient, "getFullname") else api.safe_unicode(patient.Title())
+        # 4) Render Patient (enlace) y MRN como enlace al Patient
+        patient_fullname = (
+            patient.getFullname() if hasattr(patient, "getFullname")
+            else api.safe_unicode(patient.Title())
+        )
         patient_url = api.get_url(patient)
         patient_view_url = "{}/@@view".format(patient_url)
 
@@ -171,6 +194,9 @@ class SamplesListingAdapter(object):
         if sample_patient_mrn:
             item["replace"]["MRN"] = get_link(patient_url, sample_patient_mrn)
 
+    # -----------------------------------------------------------------------
+    # Cache de búsqueda por MRN
+    # -----------------------------------------------------------------------
     @viewcache
     def get_patient_by_mrn(self, mrn):
         if not mrn:
@@ -179,10 +205,16 @@ class SamplesListingAdapter(object):
             return self.context
         return get_patient_by_mrn(mrn)
 
+    # -----------------------------------------------------------------------
+    # Preparación de columnas/estados antes de render
+    # -----------------------------------------------------------------------
     @check_installed(None)
     def before_render(self):
         rv_keys = map(lambda r: r["id"], self.listing.review_states)
+
+        # Columnas
         for column_id, column_values in ADD_COLUMNS:
+            # No añadir MRN en contexto de Patient
             if column_id == "MRN" and self.is_patient_context():
                 continue
             add_column(
@@ -192,8 +224,10 @@ class SamplesListingAdapter(object):
                 after=column_values.get("after", None),
                 review_states=rv_keys)
 
+        # Estados
         for status in ADD_STATUSES:
             sid = status.get("id")
+            # No añadir estado "temp_mrn" en contexto Patient
             if sid == "temp_mrn" and self.is_patient_context():
                 continue
             after = status.get("after", None)
@@ -202,5 +236,8 @@ class SamplesListingAdapter(object):
                 status.update({"columns": self.listing.columns.keys()})
             add_review_state(self.listing, status, after=after, before=before)
 
+    # -----------------------------------------------------------------------
+    # Contexto
+    # -----------------------------------------------------------------------
     def is_patient_context(self):
         return api.get_portal_type(self.context) == "Patient"
