@@ -26,19 +26,47 @@ from senaite.patient.interfaces import IPatient
 
 
 def get_patient_from_context(context):
-    """Devuelve el paciente desde un AR o directamente.
-    Wrapper de compatibilidad porque senaite.patient.api no define get_patient().
+    """Obtiene el Patient asociado al contexto de manera segura.
+    1) Si es Patient, lo devuelve.
+    2) Si es AR/Sample, intenta getPatient() primero (nativo).
+    3) Fallback: si hay MRN (PatientID), busca por MRN.
     """
-    # Si es un AnalysisRequest, intenta con PatientID
-    if IAnalysisRequest.providedBy(context):
-        mrn = getattr(context, "PatientID", None)
-        if mrn:
-            return api.get_patient_by_mrn(mrn)
-        return None
-
-    # Si ya es un Patient
+    # Caso: ya es un Patient
     if IPatient.providedBy(context):
         return context
+
+    # Caso: es un AnalysisRequest/Sample
+    if IAnalysisRequest.providedBy(context):
+        # 1) Intentar accessor nativo getPatient()
+        getPatient = getattr(context, "getPatient", None)
+        if callable(getPatient):
+            try:
+                p = getPatient()
+                if p and IPatient.providedBy(p):
+                    return p
+            except Exception:
+                # Si falla, seguimos al fallback por MRN
+                pass
+
+        # 2) Fallback por MRN (PatientID): accessor o atributo
+        mrn = None
+        getPatientID = getattr(context, "getPatientID", None)
+        if callable(getPatientID):
+            try:
+                mrn = getPatientID()
+            except Exception:
+                mrn = None
+        if not mrn:
+            mrn = getattr(context, "PatientID", None)
+
+        if mrn:
+            try:
+                # Usa la API existente; permite inactivos por compatibilidad
+                return api.get_patient_by_mrn(
+                    mrn, full_object=True, include_inactive=True
+                )
+            except Exception:
+                return None
 
     return None
 
@@ -56,20 +84,28 @@ class TemporaryMRNViewlet(ViewletBase):
         self.request = request
         self.view = view
 
+    def _is_temp(self, patient):
+        """Normaliza el valor de 'Temporary' a booleano."""
+        try:
+            val = getattr(patient, "getTemporary", lambda: False)()
+        except Exception:
+            val = False
+        return bool(val)
+
     def is_visible(self):
         """Determina si el viewlet debe mostrarse o no."""
-
         # Caso 1: contexto directo
         patient = get_patient_from_context(self.context)
-        if patient and hasattr(patient, "getTemporary"):
-            return patient.getTemporary()
+        if patient and self._is_temp(patient):
+            return True
 
-        # Caso 2: contexto desde la vista
+        # Caso 2: contexto desde la vista (algunos renders pasan por view.context)
         try:
-            if hasattr(self.view, "context"):
-                patient = get_patient_from_context(self.view.context)
-                if patient and hasattr(patient, "getTemporary"):
-                    return patient.getTemporary()
+            ctx = getattr(self.view, "context", None)
+            if ctx:
+                patient = get_patient_from_context(ctx)
+                if patient and self._is_temp(patient):
+                    return True
         except Exception:
             pass
 
