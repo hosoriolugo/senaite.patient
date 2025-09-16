@@ -98,19 +98,19 @@ class SamplesListingAdapter(object):
 
     @check_installed(None)
     def folder_item(self, obj, item, index):
-        if self.show_icon_temp_mrn and obj.isMedicalRecordTemporary:
+        if self.show_icon_temp_mrn and getattr(obj, "isMedicalRecordTemporary", False):
             # Add an icon after the sample ID
             after_icons = item["after"].get("getId", "")
             kwargs = {"width": 16, "title": _("Temporary MRN")}
             after_icons += self.icon_tag("id-card-red", **kwargs)
             item["after"].update({"getId": after_icons})
 
-        # ✅ Ajuste: usamos los métodos definidos en analysisrequest.py
-        sample_patient_mrn = api.to_utf8(
-            obj.getMedicalRecordNumber(), default="")
+        # ✅ Protegemos las llamadas por si obj no es un AnalysisRequest real
+        get_mrn = getattr(obj, "getMedicalRecordNumber", None)
+        sample_patient_mrn = api.to_utf8(get_mrn(), default="") if get_mrn else ""
 
-        sample_patient_fullname = api.to_utf8(
-            obj.getPatientFullName(), default="")
+        get_fullname = getattr(obj, "getPatientFullName", None)
+        sample_patient_fullname = api.to_utf8(get_fullname(), default="") if get_fullname else ""
 
         item["MRN"] = sample_patient_mrn
         item["Patient"] = sample_patient_fullname
