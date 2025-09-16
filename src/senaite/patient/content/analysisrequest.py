@@ -6,14 +6,13 @@
 # under the terms of the GNU General Public License as published by the Free
 # Software Foundation, version 2.
 #
-# This program is distributed in the hope that it will be useful, but WITHOUT
-# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
-# details.
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
 #
-# You should have received a copy of the GNU General Public License along with
-# this program; if not, write to the Free Software Foundation, Inc., 51
-# Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 # Copyright 2020-2025 by it's authors.
 # Some rights reserved, see README and LICENSE.
@@ -24,6 +23,7 @@ from archetypes.schemaextender.interfaces import ISchemaModifier
 from bika.lims.browser.widgets import SelectionWidget
 from bika.lims.interfaces import IAnalysisRequest
 from Products.Archetypes.Widget import TextAreaWidget
+from Products.Archetypes.Widget import StringWidget
 from Products.CMFCore.permissions import View
 from senaite.patient import messageFactory as _
 from senaite.patient.api import get_patient_name_entry_mode
@@ -47,6 +47,8 @@ from senaite.patient.permissions import FieldEditFullName
 from senaite.patient.permissions import FieldEditGender
 from senaite.patient.permissions import FieldEditMRN
 from senaite.patient.permissions import FieldEditSex
+from senaite.patient.permissions import FieldEditPatientWeight
+from senaite.patient.permissions import FieldEditPatientRoom
 from senaite.patient.validators import TemporaryIdentifierValidator
 from zope.component import adapts
 from zope.interface import implementer
@@ -56,10 +58,13 @@ MAYBE_REQUIRED_FIELDS = [
     "PatientFullName",
 ]
 
+# ----------------------------------------------------------------------
+# Medical Record Number field with patient lookup
+# ----------------------------------------------------------------------
 MedicalRecordNumberField = TemporaryIdentifierField(
     "MedicalRecordNumber",
     required=True,
-    validators=(TemporaryIdentifierValidator(), ),
+    validators=(TemporaryIdentifierValidator(),),
     read_permission=View,
     write_permission=FieldEditMRN,
     widget=TemporaryIdentifierWidget(
@@ -85,37 +90,29 @@ MedicalRecordNumberField = TemporaryIdentifierField(
         allow_user_value=True,
         hide_input_after_select=False,
         columns=[
-            {
-                "name": "mrn",
-                "width": "20",
-                "align": "left",
-                "label": _(u"MRN"),
-            }, {
-                "name": "firstname",
-                "width": "20",
-                "align": "left",
-                "label": _(u"Firstname"),
-            }, {
-                "name": "middlename",
-                "width": "20",
-                "align": "left",
-                "label": _(u"Middlename"),
-            }, {
-                "name": "lastname",
-                "width": "20",
-                "align": "left",
-                "label": _(u"Lastname"),
-            }, {
-                "name": "getLocalizedBirthdate",
-                "width": "20",
-                "align": "left",
-                "label": _(u"Birthdate"),
-            },
+            {"name": "mrn", "width": "20", "align": "left", "label": _(u"MRN")},
+            {"name": "firstname", "width": "20", "align": "left", "label": _(u"Firstname")},
+            {"name": "middlename", "width": "20", "align": "left", "label": _(u"Middlename")},
+            {"name": "lastname", "width": "20", "align": "left", "label": _(u"Lastname")},
+            # ➕ añadido: apellido materno
+            {"name": "maternal_lastname", "width": "20", "align": "left", "label": _(u"Maternal Lastname")},
+            {"name": "getLocalizedBirthdate", "width": "20", "align": "left", "label": _(u"Birthdate")},
         ],
-        limit=3,
-    )
+        # ➕ añadido: mappings para poblar campos de AR con los 4 nombres
+        column_mappings={
+            "firstname": "PatientFirstName",
+            "middlename": "PatientMiddleName",
+            "lastname": "PatientLastName",
+            "maternal_lastname": "PatientMaternalLastName",
+            "getFullname": "PatientFullName",
+        },
+        limit=5,
+    ),
 )
 
+# ----------------------------------------------------------------------
+# Patient full name field
+# ----------------------------------------------------------------------
 PatientFullNameField = FullnameField(
     "PatientFullName",
     required=True,
@@ -123,15 +120,16 @@ PatientFullNameField = FullnameField(
     write_permission=FieldEditFullName,
     widget=FullnameWidget(
         label=_("Patient name"),
-        entry_mode="parts",
-        view_format="%(firstname)s %(middlename)s %(lastname)s",
+        entry_mode="parts",  # se ajusta dinámicamente en SchemaModifier
+        view_format="%(firstname)s %(middlename)s %(lastname)s %(maternal_lastname)s",
         render_own_label=True,
-        visible={
-            "add": "edit",
-        }
-    )
+        visible={"add": "edit"},
+    ),
 )
 
+# ----------------------------------------------------------------------
+# Other patient-related fields
+# ----------------------------------------------------------------------
 PatientAddressField = ExtTextField(
     "PatientAddress",
     read_permission=View,
@@ -140,10 +138,8 @@ PatientAddressField = ExtTextField(
         label=_("Place of residence"),
         render_own_label=True,
         rows=3,
-        visible={
-            "add": "edit",
-        }
-    )
+        visible={"add": "edit"},
+    ),
 )
 
 dob_field = AgeDateOfBirthField(
@@ -155,9 +151,7 @@ dob_field = AgeDateOfBirthField(
         render_own_label=True,
         default_age=True,
         show_time=False,
-        visible={
-            "add": "edit",
-        }
+        visible={"add": "edit"},
     ),
 )
 
@@ -172,9 +166,7 @@ SexField = ExtStringField(
         label=_("Sex"),
         description=_("Sex at birth"),
         format="select",
-        visible={
-            "add": "edit",
-        }
+        visible={"add": "edit"},
     ),
 )
 
@@ -188,17 +180,45 @@ GenderField = ExtStringField(
     widget=SelectionWidget(
         label=_("Gender Identity"),
         format="select",
-        visible={
-            "add": "edit",
-        }
+        visible={"add": "edit"},
     ),
 )
 
+# ----------------------------------------------------------------------
+# Extra fields (peso y habitación)
+# ----------------------------------------------------------------------
+PatientWeightField = ExtStringField(
+    "PatientWeight",
+    required=False,
+    read_permission=View,
+    write_permission=FieldEditPatientWeight,
+    widget=StringWidget(
+        label=_("Patient Weight"),
+        description=_("Patient weight in kilograms"),
+        render_own_label=True,
+        visible={"add": "edit", "secondary": "disabled"},
+    ),
+)
 
+PatientRoomField = ExtStringField(
+    "PatientRoom",
+    required=False,
+    read_permission=View,
+    write_permission=FieldEditPatientRoom,
+    widget=StringWidget(
+        label=_("Patient Room"),
+        description=_("Patient room number or identifier"),
+        render_own_label=True,
+        visible={"add": "edit", "secondary": "disabled"},
+    ),
+)
+
+# ----------------------------------------------------------------------
+# Schema extender
+# ----------------------------------------------------------------------
 @implementer(IOrderableSchemaExtender, IBrowserLayerAwareExtender)
 class AnalysisRequestSchemaExtender(object):
-    """Extends the AnalysisRequest with additional fields
-    """
+    """Extiende AnalysisRequest con los campos de paciente"""
     adapts(IAnalysisRequest)
     layer = ISenaitePatientLayer
 
@@ -216,13 +236,17 @@ class AnalysisRequestSchemaExtender(object):
             dob_field,
             SexField,
             GenderField,
+            # ➕ añadidos
+            PatientWeightField,
+            PatientRoomField,
         ]
 
-
+# ----------------------------------------------------------------------
+# Schema modifier
+# ----------------------------------------------------------------------
 @implementer(ISchemaModifier, IBrowserLayerAwareExtender)
 class AnalysisRequestSchemaModifier(object):
-    """Rearrange Schema Fields
-    """
+    """Ajusta requeridos y labels dinámicos"""
     adapts(IAnalysisRequest)
     layer = ISenaitePatientLayer
 
@@ -235,11 +259,12 @@ class AnalysisRequestSchemaModifier(object):
             field = schema.get(fieldname)
             field.required = required
 
+        # Ajuste dinámico de entry_mode desde registry
         entry_mode = get_patient_name_entry_mode()
         fullname_field = schema.get("PatientFullName")
         fullname_field.widget.entry_mode = entry_mode
 
-        # Change the name of the DoB's field label if Age is supported
+        # Label para DoB según soporte de edad
         field = schema.get("DateOfBirth")
         if is_age_supported():
             field.widget.label = _("Age / Date of birth")
@@ -247,3 +272,21 @@ class AnalysisRequestSchemaModifier(object):
             field.widget.label = _("Date of birth")
 
         return schema
+
+# ----------------------------------------------------------------------
+# Métodos de compatibilidad para el catálogo
+# ----------------------------------------------------------------------
+def getMedicalRecordNumber(self):
+    """Devuelve el MRN del paciente asociado como string"""
+    patient = getattr(self, "getPatient", lambda: None)()
+    if not patient:
+        return ""
+    return getattr(patient, "mrn", "")
+
+def getPatientFullName(self):
+    """Devuelve el nombre completo del paciente como string"""
+    patient = getattr(self, "getPatient", lambda: None)()
+    if not patient:
+        return ""
+    # Usa la API del paciente (ya devuelve string con los 4 campos si están definidos)
+    return getattr(patient, "getFullname", lambda: "")()
