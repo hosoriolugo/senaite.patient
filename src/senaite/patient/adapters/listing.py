@@ -33,10 +33,7 @@ from zope.component import adapts
 from zope.component import getMultiAdapter
 from zope.interface import implements
 
-# ---------------------------------------------------------------------------
-# Columnas y estados adicionales
-# ---------------------------------------------------------------------------
-
+# Statuses to add. List of dicts
 ADD_STATUSES = [{
     "id": "temp_mrn",
     "title": _("Temporary MRN"),
@@ -48,8 +45,10 @@ ADD_STATUSES = [{
     "before": "to_be_verified",
     "transitions": [],
     "custom_transitions": [],
-}]
+},
+]
 
+# Columns to add
 ADD_COLUMNS = [
     ("Patient", {
         "title": _("Patient"),
@@ -66,19 +65,18 @@ ADD_COLUMNS = [
 
 
 class SamplesListingAdapter(object):
-    """Adapter de listado de Samples con columnas MRN/Patient e icono de MRN temporal."""
+    """Generic adapter for sample listings
+    """
     adapts(IListingView)
     implements(IListingViewAdapter)
 
+    # Priority order of this adapter over others
     priority_order = 99999
 
     def __init__(self, listing, context):
         self.listing = listing
         self.context = context
 
-    # -----------------------------------------------------------------------
-    # Utilidades de tema / iconos
-    # -----------------------------------------------------------------------
     @property
     @memoize
     def senaite_theme(self):
@@ -89,128 +87,66 @@ class SamplesListingAdapter(object):
     def icon_tag(self, name, **kwargs):
         return self.senaite_theme.icon_tag(name, **kwargs)
 
-    # -----------------------------------------------------------------------
-    # Preferencias
-    # -----------------------------------------------------------------------
     @property
     @memoize
     def show_icon_temp_mrn(self):
-        """Mostrar icono de alerta si el MRN del paciente es temporal."""
+        """Returns whether an alert icon has to be displayed next to the sample
+        id when the Patient assigned to the sample has a temporary Medical
+        Record Number (MRN)
+        """
         return api.get_registry_record("senaite.patient.show_icon_temp_mrn")
 
-    # -----------------------------------------------------------------------
-    # Helpers MRN seguros
-    # -----------------------------------------------------------------------
-    def getMedicalRecordNumberValue(self, obj, item=None, **kw):
-        """Devuelve el MRN de forma segura desde el Sample real o su Patient."""
-        mrn = u""
-        real = obj.getObject() if hasattr(obj, "getObject") else obj
-
-        # 1) Intentar desde el Patient
-        patient = None
-        if hasattr(real, "getPatient"):
-            try:
-                patient = real.getPatient()
-            except Exception:
-                patient = None
-        elif hasattr(real, "getContact"):  # compat
-            try:
-                patient = real.getContact()
-            except Exception:
-                patient = None
-
-        if patient and hasattr(patient, "getMRN"):
-            try:
-                mrn = patient.getMRN() or u""
-            except Exception:
-                mrn = u""
-
-        # 2) Intentar desde el accessor del Sample (si existe)
-        if not mrn:
-            getter = getattr(real, "getMedicalRecordNumberValue", None)
-            if getter is not None:
-                try:
-                    mrn_val = getter() if callable(getter) else getter
-                    mrn = mrn_val or u""
-                except Exception:
-                    mrn = u""
-
-        return api.to_utf8(mrn) if mrn else u""
-
-    # -----------------------------------------------------------------------
-    # Hook principal por fila del listado
-    # -----------------------------------------------------------------------
     @check_installed(None)
     def folder_item(self, obj, item, index):
-        """Completa columnas Patient/MRN y añade icono de MRN temporal."""
-        # Asegurar objeto real (evitar RequestContainer)
-        real = obj.getObject() if hasattr(obj, "getObject") else obj
-
-        # Resolver el Patient desde el Sample
-        patient = None
-        if hasattr(real, "getPatient"):
-            try:
-                patient = real.getPatient()
-            except Exception:
-                patient = None
-        if not patient and hasattr(real, "getContact"):  # compat
-            try:
-                patient = real.getContact()
-            except Exception:
-                patient = None
-
-        # 1) Icono "Temporary MRN" -> criterio nativo: patient.getTemporary()
-        is_temp = False
-        if patient and hasattr(patient, "getTemporary"):
-            try:
-                is_temp = bool(patient.getTemporary())
-            except Exception:
-                is_temp = False
-        else:
-            # Fallback: algunos setups exponen helper en el Sample
-            flag = getattr(real, "isMedicalRecordTemporary", False)
-            try:
-                is_temp = flag() if callable(flag) else bool(flag)
-            except Exception:
-                is_temp = False
-
-        if self.show_icon_temp_mrn and is_temp:
+        if self.show_icon_temp_mrn and obj.isMedicalRecordTemporary:
+            # Add an icon after the sample ID
             after_icons = item["after"].get("getId", "")
             kwargs = {"width": 16, "title": _("Temporary MRN")}
-            try:
-                after_icons += self.icon_tag("id-card-red", **kwargs)
-            except Exception:
-                after_icons += self.icon_tag("warning", **kwargs)
-            item["after"]["getId"] = after_icons
+            after_icons += self.icon_tag("id-card-red", **kwargs)
+            item["after"].update({"getId": after_icons})
 
-        # 2) MRN seguro
-        sample_patient_mrn = self.getMedicalRecordNumberValue(obj, item=item)
+        sample_patient_mrn = api.to_utf8(
+            obj.getMedicalRecordNumberValue, default="")
+
+        sample_patient_fullname = api.to_utf8(
+            obj.getPatientFullName, default="")
+
         item["MRN"] = sample_patient_mrn
+        item["Patient"] = sample_patient_fullname
 
-        # 3) Si no hay Patient pero sí MRN, buscar por MRN
-        if not patient and sample_patient_mrn:
-            patient = self.get_patient_by_mrn(sample_patient_mrn)
+        # get the patient object
+        patient = self.get_patient_by_mrn(sample_patient_mrn)
 
-        # 4) Columna Patient
         if not patient:
-            item["Patient"] = _("(No patient)")
             return
 
-        patient_fullname = (
-            patient.getFullname() if hasattr(patient, "getFullname")
-            else api.safe_unicode(patient.Title())
-        )
+        # Link to patient object
         patient_url = api.get_url(patient)
-        patient_view_url = "{}/@@view".format(patient_url)
-
-        item.setdefault("replace", {})
-        item["Patient"] = get_link(patient_view_url, patient_fullname)
         if sample_patient_mrn:
-            item["replace"]["MRN"] = get_link(patient_url, sample_patient_mrn)
+            item["replace"]["MRN"] = get_link(
+                patient_url, sample_patient_mrn)
 
-    # -----------------------------------------------------------------------
-    # Cache de búsqueda por MRN
-    # -----------------------------------------------------------------------
+        patient_mrn = patient.getMRN()
+        patient_fullname = patient.getFullname()
+
+        # patient MRN is different
+        if sample_patient_mrn != patient_mrn:
+            msg = _("Patient MRN of sample is not equal to %s")
+            val = api.safe_unicode(patient_mrn) or _("<no value>")
+            icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
+            item["after"]["MRN"] = self.icon_tag("info", **icon_args)
+
+        if sample_patient_fullname != patient_fullname:
+            msg = _("Patient fullname of sample is not equal to %s")
+            val = api.safe_unicode(patient_fullname) or _("<no value>")
+            icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
+            item["after"]["Patient"] = self.icon_tag("info", **icon_args)
+        else:
+            patient_view_url = "{}/@@view".format(patient_url)
+            patient_view_url = get_link(
+                    patient_view_url, sample_patient_fullname)
+            item["Patient"] = patient_view_url
+
     @viewcache
     def get_patient_by_mrn(self, mrn):
         if not mrn:
@@ -219,16 +155,12 @@ class SamplesListingAdapter(object):
             return self.context
         return get_patient_by_mrn(mrn)
 
-    # -----------------------------------------------------------------------
-    # Preparación de columnas/estados antes de render
-    # -----------------------------------------------------------------------
     @check_installed(None)
     def before_render(self):
+        # Additional columns
         rv_keys = map(lambda r: r["id"], self.listing.review_states)
-
-        # Columnas
         for column_id, column_values in ADD_COLUMNS:
-            # No añadir MRN en contexto de Patient
+            # skip MRN column for patient context
             if column_id == "MRN" and self.is_patient_context():
                 continue
             add_column(
@@ -238,10 +170,10 @@ class SamplesListingAdapter(object):
                 after=column_values.get("after", None),
                 review_states=rv_keys)
 
-        # Estados
+        # Add review_states
         for status in ADD_STATUSES:
             sid = status.get("id")
-            # No añadir estado "temp_mrn" en contexto Patient
+            # skip temporary MRN for patient context
             if sid == "temp_mrn" and self.is_patient_context():
                 continue
             after = status.get("after", None)
@@ -250,8 +182,7 @@ class SamplesListingAdapter(object):
                 status.update({"columns": self.listing.columns.keys()})
             add_review_state(self.listing, status, after=after, before=before)
 
-    # -----------------------------------------------------------------------
-    # Contexto
-    # -----------------------------------------------------------------------
     def is_patient_context(self):
+        """Check if the current context is a patient
+        """
         return api.get_portal_type(self.context) == "Patient"
