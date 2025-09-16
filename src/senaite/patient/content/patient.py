@@ -931,3 +931,30 @@ class Patient(Container):
         """
         mutator = self.mutator("estimated_birthdate")
         return mutator(self, value)
+
+    @security.protected(permissions.ModifyPortalContent)
+    def setEstimatedBirthdate(self, value):
+        """Set if the patient's date of birth is estimated
+        """
+        mutator = self.mutator("estimated_birthdate")
+        return mutator(self, value)
+
+    # ==== AÑADE ESTE MÉTODO AL FINAL DE LA CLASE ====
+    @security.protected(permissions.View)
+    def getTemporary(self):
+        """Return True if MRN is temporary - COMPATIBLE con tus 4 campos
+        """
+        # Verificar si existe el campo 'Temporary'
+        if hasattr(self, 'getField') and self.getField('Temporary'):
+            field = self.getField('Temporary')
+            return field.get(self)
+        
+        # Backward compatibility - verificar métodos alternativos
+        if hasattr(self, 'isMedicalRecordTemporary'):
+            return self.isMedicalRecordTemporary()
+        
+        # Por defecto, no es temporal
+        return False
+
+    # Alias para backward compatibility
+    isMedicalRecordTemporary = getTemporary
