@@ -125,13 +125,13 @@ class SamplesListingAdapter(object):
             except Exception:
                 mrn = u""
 
-        # 2) Intentar desde el accessor del Sample (si existe y no es container)
+        # 2) Intentar desde el accessor del Sample (si existe)
         if not mrn:
             getter = getattr(real, "getMedicalRecordNumberValue", None)
             if getter is not None:
                 try:
-                    mrn = getter() if callable(getter) else getter
-                    mrn = mrn or u""
+                    mrn_val = getter() if callable(getter) else getter
+                    mrn = mrn_val or u""
                 except Exception:
                     mrn = u""
 
@@ -146,42 +146,56 @@ class SamplesListingAdapter(object):
         # Asegurar objeto real (evitar RequestContainer)
         real = obj.getObject() if hasattr(obj, "getObject") else obj
 
-        # 1) Icono "Temporary MRN"
-        is_temp = False
-        flag = getattr(real, "isMedicalRecordTemporary", False)
-        try:
-            is_temp = flag() if callable(flag) else bool(flag)
-        except Exception:
-            is_temp = False
-
-        if self.show_icon_temp_mrn and is_temp:
-            after_icons = item["after"].get("getId", "")
-            kwargs = {"width": 16, "title": _("Temporary MRN")}
-            after_icons += self.icon_tag("id-card-red", **kwargs)
-            item["after"]["getId"] = after_icons
-
-        # 2) MRN seguro
-        sample_patient_mrn = self.getMedicalRecordNumberValue(obj, item=item)
-        item["MRN"] = sample_patient_mrn
-
-        # 3) Resolver el Patient
+        # Resolver el Patient desde el Sample
         patient = None
         if hasattr(real, "getPatient"):
             try:
                 patient = real.getPatient()
             except Exception:
                 patient = None
+        if not patient and hasattr(real, "getContact"):  # compat
+            try:
+                patient = real.getContact()
+            except Exception:
+                patient = None
 
-        # Si no hay Patient pero sí MRN, buscar por MRN
+        # 1) Icono "Temporary MRN" -> criterio nativo: patient.getTemporary()
+        is_temp = False
+        if patient and hasattr(patient, "getTemporary"):
+            try:
+                is_temp = bool(patient.getTemporary())
+            except Exception:
+                is_temp = False
+        else:
+            # Fallback: algunos setups exponen helper en el Sample
+            flag = getattr(real, "isMedicalRecordTemporary", False)
+            try:
+                is_temp = flag() if callable(flag) else bool(flag)
+            except Exception:
+                is_temp = False
+
+        if self.show_icon_temp_mrn and is_temp:
+            after_icons = item["after"].get("getId", "")
+            kwargs = {"width": 16, "title": _("Temporary MRN")}
+            try:
+                after_icons += self.icon_tag("id-card-red", **kwargs)
+            except Exception:
+                after_icons += self.icon_tag("warning", **kwargs)
+            item["after"]["getId"] = after_icons
+
+        # 2) MRN seguro
+        sample_patient_mrn = self.getMedicalRecordNumberValue(obj, item=item)
+        item["MRN"] = sample_patient_mrn
+
+        # 3) Si no hay Patient pero sí MRN, buscar por MRN
         if not patient and sample_patient_mrn:
             patient = self.get_patient_by_mrn(sample_patient_mrn)
 
-        # Si no hay Patient -> "(No patient)"
+        # 4) Columna Patient
         if not patient:
             item["Patient"] = _("(No patient)")
             return
 
-        # 4) Render Patient (enlace) y MRN como enlace al Patient
         patient_fullname = (
             patient.getFullname() if hasattr(patient, "getFullname")
             else api.safe_unicode(patient.Title())
