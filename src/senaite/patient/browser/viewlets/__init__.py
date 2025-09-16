@@ -39,25 +39,31 @@ class TemporaryMRNViewlet(ViewletBase):
     def is_visible(self):
         """Returns whether this viewlet must be visible or not
         """
+        # PRIMERO: Verificar el tipo de contexto
+        from bika.lims.interfaces import IAnalysisRequest
+        from senaite.patient.interfaces import IPatient
+        
         # Si el contexto es AnalysisRequest, obtener el paciente
         if IAnalysisRequest.providedBy(self.context):
-            patient = self.context.getPatient()
+            # Usar la API en lugar de getPatient() directo
+            patient = api.get_patient(self.context)
             if patient and hasattr(patient, 'getTemporary'):
                 return patient.getTemporary()
         
         # Si el contexto es Patient directamente
-        if hasattr(self.context, 'getTemporary'):
-            return self.context.getTemporary()
+        if IPatient.providedBy(self.context):
+            if hasattr(self.context, 'getTemporary'):
+                return self.context.getTemporary()
         
-        # Si el contexto tiene el método antiguo (backward compatibility)
-        if hasattr(self.context, 'isMedicalRecordTemporary'):
-            return self.context.isMedicalRecordTemporary()
-        
-        # Intentar obtener paciente por otros medios
+        # Si es RequestContainer u otro tipo, intentar obtener el contexto real
         try:
-            patient = api.get_patient(self.context)
-            if patient and hasattr(patient, 'getTemporary'):
-                return patient.getTemporary()
+            # Intentar obtener el contexto desde la vista
+            if hasattr(self.view, 'context'):
+                real_context = self.view.context
+                if IAnalysisRequest.providedBy(real_context):
+                    patient = api.get_patient(real_context)
+                    if patient and hasattr(patient, 'getTemporary'):
+                        return patient.getTemporary()
         except:
             pass
         
