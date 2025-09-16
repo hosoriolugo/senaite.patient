@@ -6,14 +6,13 @@
 # under the terms of the GNU General Public License as published by the Free
 # Software Foundation, version 2.
 #
-# This program is distributed in the hope that it will be useful, but WITHOUT
-# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
-# details.
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
 #
-# You should have received a copy of the GNU General Public License along with
-# this program; if not, write to the Free Software Foundation, Inc., 51
-# Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 # Copyright 2020-2025 by it's authors.
 # Some rights reserved, see README and LICENSE.
@@ -54,7 +53,6 @@ from senaite.patient.validators import TemporaryIdentifierValidator
 from zope.component import adapts
 from zope.interface import implementer
 
-
 MAYBE_REQUIRED_FIELDS = [
     "MedicalRecordNumber",
     "PatientFullName",
@@ -66,7 +64,7 @@ MAYBE_REQUIRED_FIELDS = [
 MedicalRecordNumberField = TemporaryIdentifierField(
     "MedicalRecordNumber",
     required=True,
-    validators=(TemporaryIdentifierValidator(), ),
+    validators=(TemporaryIdentifierValidator(),),
     read_permission=View,
     write_permission=FieldEditMRN,
     widget=TemporaryIdentifierWidget(
@@ -92,14 +90,15 @@ MedicalRecordNumberField = TemporaryIdentifierField(
         allow_user_value=True,
         hide_input_after_select=False,
         columns=[
-            {"name": "mrn", "width": "15", "align": "left", "label": _(u"MRN")},
-            {"name": "firstname", "width": "15", "align": "left", "label": _(u"Firstname")},
-            {"name": "middlename", "width": "15", "align": "left", "label": _(u"Middlename")},
-            {"name": "lastname", "width": "15", "align": "left", "label": _(u"Lastname")},
-            {"name": "maternal_lastname", "width": "15", "align": "left", "label": _(u"Maternal Lastname")},
-            {"name": "getLocalizedBirthdate", "width": "15", "align": "left", "label": _(u"Birthdate")},
+            {"name": "mrn", "width": "20", "align": "left", "label": _(u"MRN")},
+            {"name": "firstname", "width": "20", "align": "left", "label": _(u"Firstname")},
+            {"name": "middlename", "width": "20", "align": "left", "label": _(u"Middlename")},
+            {"name": "lastname", "width": "20", "align": "left", "label": _(u"Lastname")},
+            # ➕ añadido: apellido materno
+            {"name": "maternal_lastname", "width": "20", "align": "left", "label": _(u"Maternal Lastname")},
+            {"name": "getLocalizedBirthdate", "width": "20", "align": "left", "label": _(u"Birthdate")},
         ],
-        # Column -> field mapping so a row click fills AR fields
+        # ➕ añadido: mappings para poblar campos de AR con los 4 nombres
         column_mappings={
             "firstname": "PatientFirstName",
             "middlename": "PatientMiddleName",
@@ -108,7 +107,7 @@ MedicalRecordNumberField = TemporaryIdentifierField(
             "getFullname": "PatientFullName",
         },
         limit=5,
-    )
+    ),
 )
 
 # ----------------------------------------------------------------------
@@ -121,16 +120,11 @@ PatientFullNameField = FullnameField(
     write_permission=FieldEditFullName,
     widget=FullnameWidget(
         label=_("Patient name"),
-        # The entry mode is set dynamically in the SchemaModifier (parts/fullname/firstname_lastname),
-        # default to "parts" (4 components) for safety.
-        entry_mode="parts",
-        # Always display all available parts when rendering
+        entry_mode="parts",  # se ajusta dinámicamente en SchemaModifier
         view_format="%(firstname)s %(middlename)s %(lastname)s %(maternal_lastname)s",
         render_own_label=True,
-        visible={
-            "add": "edit",
-        }
-    )
+        visible={"add": "edit"},
+    ),
 )
 
 # ----------------------------------------------------------------------
@@ -145,7 +139,7 @@ PatientAddressField = ExtTextField(
         render_own_label=True,
         rows=3,
         visible={"add": "edit"},
-    )
+    ),
 )
 
 dob_field = AgeDateOfBirthField(
@@ -190,7 +184,9 @@ GenderField = ExtStringField(
     ),
 )
 
-# Optional extra fields
+# ----------------------------------------------------------------------
+# Extra fields (peso y habitación)
+# ----------------------------------------------------------------------
 PatientWeightField = ExtStringField(
     "PatientWeight",
     required=False,
@@ -222,6 +218,7 @@ PatientRoomField = ExtStringField(
 # ----------------------------------------------------------------------
 @implementer(IOrderableSchemaExtender, IBrowserLayerAwareExtender)
 class AnalysisRequestSchemaExtender(object):
+    """Extiende AnalysisRequest con los campos de paciente"""
     adapts(IAnalysisRequest)
     layer = ISenaitePatientLayer
 
@@ -239,16 +236,17 @@ class AnalysisRequestSchemaExtender(object):
             dob_field,
             SexField,
             GenderField,
+            # ➕ añadidos
             PatientWeightField,
             PatientRoomField,
         ]
-
 
 # ----------------------------------------------------------------------
 # Schema modifier
 # ----------------------------------------------------------------------
 @implementer(ISchemaModifier, IBrowserLayerAwareExtender)
 class AnalysisRequestSchemaModifier(object):
+    """Ajusta requeridos y labels dinámicos"""
     adapts(IAnalysisRequest)
     layer = ISenaitePatientLayer
 
@@ -261,12 +259,12 @@ class AnalysisRequestSchemaModifier(object):
             field = schema.get(fieldname)
             field.required = required
 
-        # Keep native behavior: drive the AR fullname widget by registry
+        # Ajuste dinámico de entry_mode desde registry
         entry_mode = get_patient_name_entry_mode()
         fullname_field = schema.get("PatientFullName")
         fullname_field.widget.entry_mode = entry_mode
 
-        # Label for DoB field depending on age support
+        # Label para DoB según soporte de edad
         field = schema.get("DateOfBirth")
         if is_age_supported():
             field.widget.label = _("Age / Date of birth")
@@ -274,4 +272,3 @@ class AnalysisRequestSchemaModifier(object):
             field.widget.label = _("Date of birth")
 
         return schema
-
