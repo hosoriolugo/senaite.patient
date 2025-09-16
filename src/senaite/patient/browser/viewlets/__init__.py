@@ -20,7 +20,8 @@
 
 from plone.app.layout.viewlets import ViewletBase
 from Products.Five.browser.pagetemplatefile import ViewPageTemplateFile
-
+from bika.lims.interfaces import IAnalysisRequest
+from senaite.patient import api
 
 class TemporaryMRNViewlet(ViewletBase):
     """ Print a viewlet to display a message stating the Medical Record Number
@@ -38,4 +39,26 @@ class TemporaryMRNViewlet(ViewletBase):
     def is_visible(self):
         """Returns whether this viewlet must be visible or not
         """
-        return self.context.isMedicalRecordTemporary()
+        # Si el contexto es AnalysisRequest, obtener el paciente
+        if IAnalysisRequest.providedBy(self.context):
+            patient = self.context.getPatient()
+            if patient and hasattr(patient, 'getTemporary'):
+                return patient.getTemporary()
+        
+        # Si el contexto es Patient directamente
+        if hasattr(self.context, 'getTemporary'):
+            return self.context.getTemporary()
+        
+        # Si el contexto tiene el método antiguo (backward compatibility)
+        if hasattr(self.context, 'isMedicalRecordTemporary'):
+            return self.context.isMedicalRecordTemporary()
+        
+        # Intentar obtener paciente por otros medios
+        try:
+            patient = api.get_patient(self.context)
+            if patient and hasattr(patient, 'getTemporary'):
+                return patient.getTemporary()
+        except:
+            pass
+        
+        return False
