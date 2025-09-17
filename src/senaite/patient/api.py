@@ -68,18 +68,7 @@ def is_patient_required():
 
 def get_patient_name_entry_mode():
     """Returns the entry mode for patient name.
-\
-    Supported (normalized) keys:
-      - "parts" ................ 4 campos: firstname, middlename, lastname, maternal_lastname
-      - "first_last" ........... nombre + apellidos (apellidos = last + maternal)
-      - "first_middle_last" .... nombre + segundo nombre + apellidos
-      - "fullname" ............. un solo campo (usa patient.Title()/getFullname())
-\
-    The registry may store legacy aliases like:
-      - "name_surnames", "first_surnames"  -> first_last
-      - "name_middle_surnames"               -> first_middle_last
-\
-    Default: "parts"
+    ...
     """
     entry_mode = api.get_registry_record("senaite.patient.patient_entry_mode")
     if not entry_mode:
@@ -95,15 +84,13 @@ def get_patient_name_entry_mode():
     }
     key = aliases.get(key, key)
     if key not in {u"parts", u"first_last", u"first_middle_last", u"fullname"}:
-        # be defensive, fall back to parts
         key = u"parts"
     return key
 
 
 def get_patient_address_format():
     """Returns the address format"""
-    address_format = api.get_registry_record("senaite.patient.address_format")
-    return address_format
+    return api.get_registry_record("senaite.patient.address_format")
 
 
 def is_gender_visible():
@@ -129,17 +116,16 @@ def is_age_in_years():
     key = "senaite.patient.age_years"
     return api.get_registry_record(key, default=True)
 
+
 def _normalize_mrn(mrn):
     """Always return MRN as safe unicode string."""
     try:
-        # dicts from widgets
         if isinstance(mrn, dict):
             for k in ('mrn', 'MRN', 'value', 'text', 'label', 'title', 'Title'):
                 v = mrn.get(k)
                 if isinstance(v, string_types) and v.strip():
                     return api.safe_unicode(v).strip()
             return u""
-        # plain string
         if isinstance(mrn, string_types):
             return api.safe_unicode(mrn).strip()
     except Exception:
@@ -148,19 +134,12 @@ def _normalize_mrn(mrn):
 
 
 def get_patient_by_mrn(mrn, full_object=True, include_inactive=False):
-    """Get a patient by Medical Record Number
-\
-    :param mrn: Unique medical record number
-    :param full_object: If true, return objects instead of catalog brains
-    :param include_inactive: Also find inactive patients
-    :returns: Patient or None
-    """
+    """Get a patient by Medical Record Number"""
     query = {
         "portal_type": "Patient",
         "patient_mrn": _normalize_mrn(mrn).encode("utf8"),
         "is_active": True,
     }
-    # Remove active index
     if include_inactive:
         query.pop("is_active", None)
     results = patient_search(query)
@@ -169,38 +148,33 @@ def get_patient_by_mrn(mrn, full_object=True, include_inactive=False):
         return None
     elif count > 1:
         raise ValueError("Found {} Patients for MRN {}".format(count, mrn))
-    if full_object is False:
+    if not full_object:
         return results[0]
     return api.get_object(results[0])
 
 
 def get_patient_catalog():
-    """Returns the patient catalog"""
     return api.get_tool(PATIENT_CATALOG)
 
 
 def patient_search(query):
-    """Search the patient catalog"""
     catalog = get_patient_catalog()
     return catalog(query)
 
 
-
 def update_patient(patient, **values):
     """Update an existing patient with explicit values and reindex"""
-    # Defensive: normalize MRN (can arrive as dict, object, or string)
     raw_mrn = values.get("mrn", api.get_id(patient))
     norm_mrn = _normalize_mrn(raw_mrn)
     if not norm_mrn and raw_mrn and not isinstance(raw_mrn, string_types):
+        import logging
         logger = logging.getLogger("senaite.patient")
-        logger.warning("[update_patient] MRN value was not a string/dict: %r (type=%s) -> coerced to empty string",
-                       raw_mrn, type(raw_mrn))
+        logger.warning("[update_patient] MRN value was not a string/dict: %r (type=%s)", raw_mrn, type(raw_mrn))
     patient.setMRN(norm_mrn)
 
     patient.setFirstname(values.get("firstname", ""))
     patient.setMiddlename(values.get("middlename", ""))
     patient.setLastname(values.get("lastname", ""))
-    # ensure maternal lastname is handled
     if hasattr(patient, "setMaternalLastname"):
         patient.setMaternalLastname(values.get("maternal_lastname", ""))
     patient.setSex(values.get("sex", ""))
@@ -208,7 +182,6 @@ def update_patient(patient, **values):
     patient.setBirthdate(values.get("birthdate"))
     patient.setEstimatedBirthdate(values.get("estimated_birthdate", False))
     patient.setAddress(values.get("address"))
-    # reindex the new values
     patient.reindexObject()
 
 
@@ -216,55 +189,29 @@ def update_patient(patient, **values):
 def to_datetime(date_value, default=None, tzinfo=None):
     if isinstance(date_value, datetime):
         return date_value
-
-    # Get the DateTime
     date_value = dtime.to_DT(date_value)
     if not date_value:
         if default is None:
             return None
         return to_datetime(default, tzinfo=tzinfo)
-
-    # Convert to datetime and strip
     date_value = date_value.asdatetime()
     return date_value.replace(tzinfo=tzinfo)
 
 
 def to_ymd(period, default=_marker):
-    """Returns the given period in ymd format
-\
-    If default is _marker, either a TypeError or ValueError is raised if
-    the type of the period is not valid or cannot be converted to ymd format
-\
-    :param period: period to be converted to a ymd format
-    :type period: str/relativedelta
-    :param default: fall-back value to return as default
-    :returns: a string that represents a period in ymd format
-    :rtype: str
-    """
     try:
         ymd_values = get_years_months_days(period)
     except (TypeError, ValueError) as e:
         if default is _marker:
             raise e
         return default
-
-    # Return in ymd format, with zeros omitted
     ymd_values = map(str, ymd_values)
     ymd = filter(lambda it: int(it[0]), zip(ymd_values, "ymd"))
     ymd = " ".join(map("".join, ymd))
-
-    # return a compliant ymd when no elapsed days
     return ymd or "0d"
 
 
 def is_ymd(ymd):
-    """Returns whether the string represents a period in ymd format
-\
-    :param ymd: supposedly ymd string to evaluate
-    :type ymd: str
-    :returns: True if a valid period in ymd format
-    :rtype: bool
-    """
     if not isinstance(ymd, string_types):
         return False
     try:
@@ -275,88 +222,42 @@ def is_ymd(ymd):
 
 
 def get_years_months_days(period):
-    """Returns a tuple of (years, months, days) given a period.
-\
-    Returns (0, 0, 0) if not possible to extract the years, months and days
-    from the given period.
-\
-    :param period: period of time
-    :type period: str/relativedelta/tuple/list
-    :returns: a tuple with the years, months and days
-    :rtype: tuple
-    """
     if isinstance(period, relativedelta):
         return period.years, period.months, period.days
-
     if isinstance(period, (tuple, list)):
         years = api.to_int(period[0], default=0)
         months = api.to_int(period[1] if len(period) > 1 else 0, default=0)
         days = api.to_int(period[2] if len(period) > 2 else 0, default=0)
         return years, months, days
-
     if not isinstance(period, string_types):
         raise TypeError("{} is not supported".format(repr(period)))
-
-    # to lowercase and remove leading and trailing spaces
     raw_ymd = period.lower().strip()
-
-    # extract the years, months and days
     matches = re.search(YMD_REGEX, raw_ymd)
     values = [matches.group(v) for v in "ymd"]
-
-    # if all values are None, assume the ymd format was not valid
-    nones = [value is None for value in values]
-    if all(nones):
+    if all(value is None for value in values):
         raise ValueError("Not a valid ymd: {}".format(repr(period)))
-
-    # replace Nones with zeros and calculate everything with a relativedelta
     values = [api.to_int(value, 0) for value in values]
     delta = relativedelta(years=values[0], months=values[1], days=values[2])
     return get_years_months_days(delta)
 
 
 def get_birth_date(period, on_date=None, default=_marker):
-    """Returns the date when something started given a period in ymd format
-    and the date when such period was recorded
-\
-    If on_date is None, uses current date time as the date from which the
-    birth date is calculated.
-\
-    When ymd is not a valid period and default value is _marker, a TypeError
-    or ValueError is raised. Otherwise, it returns the default value converted
-    to datetime (or None if it cannot be converted)
-\
-    :param period: period of time
-    :type period: str/relativedelta
-    :param on_date: date from which the since date has to be calculated
-    :type on_date: string/DateTime/datetime/date
-    :param default: fall-back date-like value to return as default
-    :returns: a tuple with the years, months and days
-    :rtype: tuple
-    """
-    # extract the years, months and days from the period
     try:
         years, months, days = get_years_months_days(period)
     except (TypeError, ValueError) as e:
         if default is _marker:
             raise e
         return dtime.to_dt(default)
-
-    # date when the ymd period was recorded
     on_date = dtime.to_dt(on_date)
     if not on_date:
         on_date = datetime.now()
-        # apply system's current time zone
         tz = dtime.get_os_timezone()
         on_date = dtime.to_zone(on_date, tz)
-
-    # calculate the date when everything started
     delta = relativedelta(years=years, months=months, days=days)
     return on_date - delta
 
 
 def get_age_ymd(birth_date, on_date=None):
-    """Returns the age at on_date if not None. Otherwise, current age"""
     try:
         delta = dtime.get_relative_delta(birth_date, on_date)
         return to_ymd(delta)
@@ -366,61 +267,39 @@ def get_age_ymd(birth_date, on_date=None):
 
 @deprecated("Use senaite.core.api.dtime.get_relative_delta instead")
 def get_relative_delta(from_date, to_date=None):
-    """Returns the relative delta between two dates. If to_date is None,
-    compares the from_date with now"""
     return dtime.get_relative_delta(from_date, to_date)
 
 
 def tuplify_identifiers(identifiers):
-    """Convert identifiers to a list of key/value tuples
-\
-    :param identifiers: List of identifier dictionaries
-    :returns: List of tuples
-    """
     out = []
     for identifier in identifiers:
         key = identifier.get("key")
         value = identifier.get("value")
-        out.append((key, value, ))
+        out.append((key, value,))
     return out
 
 
 def to_identifier_type_name(identifier_type_key):
-    """Convert an identifier type ID to the human readable name
-\
-    :param identifier_type_key: The keyword of the identifier
-    :returns: Indetifiert type name
-    """
     records = api.get_registry_record("senaite.patient.identifiers")
-
     name = identifier_type_key
     for record in records:
         key = record.get("key")
         if key != identifier_type_key:
             continue
         name = record.get("value")
-
     return name
 
 
 def allow_patients_in_clients(allow=True):
-    """Allow patient creation in patients"""
     pt = api.get_tool("portal_types")
-    # get the Client Type Info
     ti = pt.getTypeInfo(CLIENT_TYPE)
-    # get the Client FTI
     fti = pt.get(CLIENT_TYPE)
-    # get the current allowed types
     allowed_types = set(fti.allowed_content_types)
-    # get the current actions
     action_ids = map(lambda a: a.id, ti._actions)
-
-    # Enable / Disable Patient
     if allow:
         allowed_types.add(PATIENT_TYPE)
         if CLIENT_VIEW_ID not in action_ids:
             ti.addAction(**CLIENT_VIEW_ACTION)
-            # move before contacts
             ref_index = action_ids.index("contacts")
             actions = ti._cloneActions()
             action = actions.pop()
@@ -430,43 +309,23 @@ def allow_patients_in_clients(allow=True):
         allowed_types.discard(PATIENT_TYPE)
         if CLIENT_VIEW_ID in action_ids:
             ti.deleteActions([action_ids.index(CLIENT_VIEW_ID)])
-
-    # set the new types
     fti.allowed_content_types = tuple(allowed_types)
 
 
 def is_patient_allowed_in_client():
-    """Returns wether patients can be created in clients or not"""
-    allowed = api.get_registry_record("senaite.patient.allow_patients_in_clients", False)
-    return allowed
+    return api.get_registry_record("senaite.patient.allow_patients_in_clients", False)
 
 
 def get_patient_folder():
-    """Returns the global patient folder
-\
-    :returns: global patients folder
-    """
     portal = api.get_portal()
     return portal.patients
 
 
 def is_patient_creation_allowed(container):
-    """Check if the security context allows to add a new patient
-\
-    :param container: The container to check the permission
-    :returns: True if it is allowed to create a patient in the container,
-              otherwise False
-    """
     return api.security.check_permission(AddPatient, container)
 
 
 def is_mrn_unique(mrn):
-    """Checks whether the mrn provided is unique. This is, no patients with
-    this mrn exist, regardless of their status
-\
-    :param mrn: The MRN to check its uniqueness
-    :returns: True if no patient with this mrn exist
-    """
     query = {
         "portal_type": "Patient",
         "patient_mrn": _normalize_mrn(mrn).encode("utf8"),
@@ -480,49 +339,28 @@ def is_mrn_unique(mrn):
 # -----------------------------
 
 def _join_clean(parts):
-    """Join non-empty unicode parts with single spaces (collapsing)."""
     parts = [api.safe_unicode(p).strip() for p in parts if p]
     text = u" ".join(parts)
-    # collapse duplicate whitespace
     return u" ".join(text.split())
 
 
 def get_patient_lastname(patient):
-    """Return combined surnames (lastname + maternal_lastname)."""
     last_ = getattr(patient, 'getLastname', lambda: u"")() or u""
     mat_ = getattr(patient, 'getMaternalLastname', lambda: u"")() or u""
     return _join_clean([last_, mat_])
 
 
 def get_patient_fullname(patient, mode=None):
-    """Return displayable full name according to configured entry mode.
-\
-    - parts: firstname + middlename + lastname + maternal_lastname
-    - first_last: firstname + (lastname + maternal_lastname)
-    - first_middle_last: firstname + middlename + (lastname + maternal_lastname)
-    - fullname: fallback to patient.Title() or patient.getFullname() if present
-\
-    If patient exposes getFullname() that already returns the 4-part name,
-    this function will match that output for the corresponding modes.
-    """
-    # normalize mode
     if mode is None:
         mode = get_patient_name_entry_mode()
-
     first = getattr(patient, 'getFirstname', lambda: u"")() or u""
     middle = getattr(patient, 'getMiddlename', lambda: u"")() or u""
     surnames = get_patient_lastname(patient)
-
     if mode == u"parts" or mode == u"first_middle_last":
-        # parts shows all 4; first_middle_last is effectively the same render
-        # because surnames is already both lastnames
         return _join_clean([first, middle, surnames])
-
     if mode == u"first_last":
         return _join_clean([first, surnames])
-
     if mode == u"fullname":
-        # Try object-level Fullname/Title for backward compatibility
         if hasattr(patient, 'getFullname'):
             try:
                 val = patient.getFullname()
@@ -535,8 +373,30 @@ def get_patient_fullname(patient, mode=None):
                 return api.safe_unicode(patient.Title()).strip()
             except Exception:
                 pass
-        # fallback to two-part
         return _join_clean([first, surnames])
-
-    # default fallback
     return _join_clean([first, middle, surnames])
+
+
+# -----------------------------
+#   Payload normalization utils
+# -----------------------------
+
+def _extract_fullname(data):
+    """Build a full name from dict payload or return string as-is.
+    Defensive: supports dicts with firstname/middlename/lastname/maternal_lastname.
+    """
+    if not data:
+        return u""
+    try:
+        if isinstance(data, dict):
+            parts = []
+            for key in ("firstname", "middlename", "lastname", "maternal_lastname"):
+                val = data.get(key)
+                if val:
+                    parts.append(api.safe_unicode(val).strip())
+            return _join_clean(parts)
+        if isinstance(data, string_types):
+            return api.safe_unicode(data).strip()
+    except Exception:
+        return u""
+    return u""
