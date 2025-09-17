@@ -129,6 +129,23 @@ def is_age_in_years():
     key = "senaite.patient.age_years"
     return api.get_registry_record(key, default=True)
 
+def _normalize_mrn(mrn):
+    """Always return MRN as safe unicode string."""
+    try:
+        # dicts from widgets
+        if isinstance(mrn, dict):
+            for k in ('mrn', 'MRN', 'value', 'text', 'label', 'title', 'Title'):
+                v = mrn.get(k)
+                if isinstance(v, string_types) and v.strip():
+                    return api.safe_unicode(v).strip()
+            return u""
+        # plain string
+        if isinstance(mrn, string_types):
+            return api.safe_unicode(mrn).strip()
+    except Exception:
+        return u""
+    return u""
+
 
 def get_patient_by_mrn(mrn, full_object=True, include_inactive=False):
     """Get a patient by Medical Record Number
@@ -140,7 +157,7 @@ def get_patient_by_mrn(mrn, full_object=True, include_inactive=False):
     """
     query = {
         "portal_type": "Patient",
-        "patient_mrn": api.safe_unicode(mrn).encode("utf8"),
+        "patient_mrn": _normalize_mrn(mrn).encode("utf8"),
         "is_active": True,
     }
     # Remove active index
@@ -444,7 +461,7 @@ def is_mrn_unique(mrn):
     """
     query = {
         "portal_type": "Patient",
-        "patient_mrn": api.safe_unicode(mrn).encode("utf8"),
+        "patient_mrn": _normalize_mrn(mrn).encode("utf8"),
     }
     brains = api.search(query, PATIENT_CATALOG)
     return len(brains) == 0
