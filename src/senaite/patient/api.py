@@ -185,10 +185,18 @@ def patient_search(query):
     return catalog(query)
 
 
+
 def update_patient(patient, **values):
     """Update an existing patient with explicit values and reindex"""
-    # set values explicitly
-    patient.setMRN(values.get("mrn", api.get_id(patient)))
+    # Defensive: normalize MRN (can arrive as dict, object, or string)
+    raw_mrn = values.get("mrn", api.get_id(patient))
+    norm_mrn = _normalize_mrn(raw_mrn)
+    if not norm_mrn and raw_mrn and not isinstance(raw_mrn, string_types):
+        logger = logging.getLogger("senaite.patient")
+        logger.warning("[update_patient] MRN value was not a string/dict: %r (type=%s) -> coerced to empty string",
+                       raw_mrn, type(raw_mrn))
+    patient.setMRN(norm_mrn)
+
     patient.setFirstname(values.get("firstname", ""))
     patient.setMiddlename(values.get("middlename", ""))
     patient.setLastname(values.get("lastname", ""))
