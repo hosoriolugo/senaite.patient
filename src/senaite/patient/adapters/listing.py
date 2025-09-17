@@ -27,7 +27,7 @@ from senaite.app.listing.utils import add_column
 from senaite.app.listing.utils import add_review_state
 from senaite.patient import check_installed
 from senaite.patient import messageFactory as _
-from senaite.patient.api import get_patient_by_mrn
+from senaite.patient.api import get_patient_by_mrn, _normalize_mrn, _extract_fullname
 from zope.component import adapts
 from zope.component import getMultiAdapter
 from zope.interface import implements
@@ -65,6 +65,7 @@ ADD_COLUMNS = [
 
 class SamplesListingAdapter(object):
     """Adapter para listados de muestras con columnas MRN y Paciente
+       con normalización defensiva de valores.
     """
     adapts(IListingView)
     implements(IListingViewAdapter)
@@ -93,51 +94,67 @@ class SamplesListingAdapter(object):
     @check_installed(None)
     def folder_item(self, obj, item, index):
         """Inserta valores de MRN y Paciente en la fila del listado
+           usando siempre valores normalizados.
         """
-        if self.show_icon_temp_mrn and obj.isMedicalRecordTemporary:
+        if self.show_icon_temp_mrn and getattr(obj, "isMedicalRecordTemporary", False):
             after_icons = item["after"].get("getId", "")
             kwargs = {"width": 16, "title": _("Temporary MRN")}
             after_icons += self.icon_tag("id-card-red", **kwargs)
             item["after"].update({"getId": after_icons})
 
-        # ✅ Correcto: llamados a métodos de AnalysisRequest
-        sample_patient_mrn = api.to_utf8(
-            obj.getMedicalRecordNumberValue() or "", default="")
-        sample_patient_fullname = api.to_utf8(
-            obj.getPatientFullName() or "", default="")
+        # ── Normalizar MRN y nombre ────────────────────────────────
+        raw_mrn = getattr(obj, "getMedicalRecordNumberValue", lambda: None)()
+        sample_patient_mrn = _normalize_mrn(raw_mrn)
 
+        raw_name = getattr(obj, "getPatientFullName", lambda: None)()
+        sample_patient_fullname = _extract_fullname(raw_name) if raw_name else u""
+
+        # Mostrar valores planos
         item["MRN"] = sample_patient_mrn
         item["Patient"] = sample_patient_fullname
 
-        # obtener el objeto paciente real
-        patient = self.get_patient_by_mrn(sample_patient_mrn)
-        if not patient:
+        # Intentar recuperar el paciente real por MRN
+        patient = None
+        try:
+            patient = self.get_patient_by_mrn(sample_patient_mrn)
+        except Exception as e:
+            api.get_logger("senaite.patient").warn(
+                "[listing] get_patient_by_mrn fallo para MRN %r: %s",
+                sample_patient_mrn, e)
+
+        if not (patient and hasattr(patient, "absolute_url")):
+            # No se encontró paciente → dejamos valores planos
             return
 
         patient_url = api.get_url(patient)
+
+        # MRN con link
         if sample_patient_mrn:
             item["replace"]["MRN"] = get_link(patient_url, sample_patient_mrn)
 
-        patient_mrn = patient.getMRN()
-        patient_fullname = patient.getFullname()
-
         # Validación MRN
+        patient_mrn = _normalize_mrn(getattr(patient, "getMRN", lambda: u"")())
         if sample_patient_mrn != patient_mrn:
             msg = _("Patient MRN of sample is not equal to %s")
-            val = api.safe_unicode(patient_mrn) or _("<no value>")
+            val = patient_mrn or _("<no value>")
             icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
             item["after"]["MRN"] = self.icon_tag("info", **icon_args)
 
         # Validación nombre
+        patient_fullname = _extract_fullname({
+            "firstname": getattr(patient, "getFirstname", lambda: u"")(),
+            "middlename": getattr(patient, "getMiddlename", lambda: u"")(),
+            "lastname": getattr(patient, "getLastname", lambda: u"")(),
+            "maternal_lastname": getattr(patient, "getMaternalLastname", lambda: u"")(),
+        })
         if sample_patient_fullname != patient_fullname:
             msg = _("Patient fullname of sample is not equal to %s")
-            val = api.safe_unicode(patient_fullname) or _("<no value>")
+            val = patient_fullname or _("<no value>")
             icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
             item["after"]["Patient"] = self.icon_tag("info", **icon_args)
         else:
             patient_view_url = "{}/@@view".format(patient_url)
-            patient_view_url = get_link(patient_view_url, sample_patient_fullname)
-            item["Patient"] = patient_view_url
+            item["Patient"] = get_link(patient_view_url, sample_patient_fullname)
 
     @viewcache
     def get_patient_by_mrn(self, mrn):
