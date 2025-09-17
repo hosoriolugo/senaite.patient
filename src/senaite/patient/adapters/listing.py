@@ -11,8 +11,9 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
 # General Public License for more details.
 #
-# You should have received a copy of the GNU General Public License
-# along with this program. If not, see <http://www.gnu.org/licenses/>.
+# You should have received a copy of the GNU General Public License along with
+# this program; if not, write to the Free Software Foundation, Inc., 51
+# Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 # Copyright 2020-2025 by it's authors.
 # Some rights reserved, see README and LICENSE.
@@ -32,8 +33,7 @@ from zope.component import adapts
 from zope.component import getMultiAdapter
 from zope.interface import implements
 
-
-# Estados adicionales
+# Statuses to add. List of dicts
 ADD_STATUSES = [{
     "id": "temp_mrn",
     "title": _("Temporary MRN"),
@@ -45,9 +45,10 @@ ADD_STATUSES = [{
     "before": "to_be_verified",
     "transitions": [],
     "custom_transitions": [],
-}]
+},
+]
 
-# Columnas adicionales
+# Columns to add
 ADD_COLUMNS = [
     ("Patient", {
         "title": _("Patient"),
@@ -64,12 +65,13 @@ ADD_COLUMNS = [
 
 
 class SamplesListingAdapter(object):
-    """Adapter para listados de muestras con columnas MRN y Paciente
-       con normalización defensiva de valores.
+    """Generic adapter for sample listings with MRN and Patient fullname.
+       Adjusted to normalize MRN and handle 4-part names gracefully.
     """
     adapts(IListingView)
     implements(IListingViewAdapter)
 
+    # Priority order of this adapter over others
     priority_order = 99999
 
     def __init__(self, listing, context):
@@ -89,85 +91,62 @@ class SamplesListingAdapter(object):
     @property
     @memoize
     def show_icon_temp_mrn(self):
+        """Returns whether an alert icon has to be displayed next to the sample
+        id when the Patient assigned to the sample has a temporary Medical
+        Record Number (MRN)
+        """
         return api.get_registry_record("senaite.patient.show_icon_temp_mrn")
 
     @check_installed(None)
     def folder_item(self, obj, item, index):
-        """Inserta valores de MRN y Paciente en la fila del listado
-           usando siempre valores normalizados.
-        """
-        # Inicializar estructuras para evitar KeyError
-        item.setdefault("replace", {})
-        item.setdefault("after", {})
-
-        # Icono de MRN temporal
-        if self.show_icon_temp_mrn and getattr(obj, "isMedicalRecordTemporary", False):
+        if self.show_icon_temp_mrn and obj.isMedicalRecordTemporary:
+            # Add an icon after the sample ID
             after_icons = item["after"].get("getId", "")
             kwargs = {"width": 16, "title": _("Temporary MRN")}
             after_icons += self.icon_tag("id-card-red", **kwargs)
             item["after"].update({"getId": after_icons})
 
-        # ── Normalizar MRN y nombre ────────────────────────────────
-        try:
-            raw_mrn = getattr(obj, "getMedicalRecordNumberValue", lambda: None)()
-        except Exception:
-            raw_mrn = None
+        # ── Normalizar MRN ─────────────────────────────────────────────
+        raw_mrn = getattr(obj, "getMedicalRecordNumberValue", lambda: None)()
         sample_patient_mrn = _normalize_mrn(raw_mrn)
 
-        try:
-            raw_name = getattr(obj, "getPatientFullName", lambda: None)()
-        except Exception:
-            raw_name = None
+        # ── Reconstruir fullname desde AR o usar valor directo ──────────
+        raw_name = getattr(obj, "getPatientFullName", lambda: None)()
         sample_patient_fullname = _extract_fullname(raw_name) if raw_name else u""
 
-        # Mostrar valores planos
         item["MRN"] = sample_patient_mrn
         item["Patient"] = sample_patient_fullname
 
-        # Intentar recuperar el paciente real por MRN
-        patient = None
-        try:
-            patient = self.get_patient_by_mrn(sample_patient_mrn)
-        except Exception as e:
-            api.get_logger("senaite.patient").warn(
-                "[listing] get_patient_by_mrn fallo para MRN %r: %s",
-                sample_patient_mrn, e)
+        # get the patient object
+        patient = self.get_patient_by_mrn(sample_patient_mrn)
 
-        if not (patient and hasattr(patient, "absolute_url")):
-            return  # dejamos valores planos
+        if not patient:
+            return
 
+        # Link to patient object
         patient_url = api.get_url(patient)
-
-        # MRN con link
         if sample_patient_mrn:
-            item["replace"]["MRN"] = get_link(patient_url, sample_patient_mrn)
+            item["replace"]["MRN"] = get_link(
+                patient_url, sample_patient_mrn)
 
-        # Validación MRN
-        try:
-            patient_mrn = _normalize_mrn(getattr(patient, "getMRN", lambda: u"")())
-        except Exception:
-            patient_mrn = u""
+        patient_mrn = _normalize_mrn(patient.getMRN())
+        patient_fullname = _extract_fullname({
+            "firstname": getattr(patient, "getFirstname", lambda: u"")(),
+            "middlename": getattr(patient, "getMiddlename", lambda: u"")(),
+            "lastname": getattr(patient, "getLastname", lambda: u"")(),
+            "maternal_lastname": getattr(patient, "getMaternalLastname", lambda: u"")(),
+        })
 
-        if sample_patient_mrn and sample_patient_mrn != patient_mrn:
+        # patient MRN is different
+        if sample_patient_mrn != patient_mrn:
             msg = _("Patient MRN of sample is not equal to %s")
-            val = patient_mrn or _("<no value>")
+            val = api.safe_unicode(patient_mrn) or _("<no value>")
             icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
             item["after"]["MRN"] = self.icon_tag("info", **icon_args)
 
-        # Validación nombre
-        try:
-            patient_fullname = _extract_fullname({
-                "firstname": getattr(patient, "getFirstname", lambda: u"")(),
-                "middlename": getattr(patient, "getMiddlename", lambda: u"")(),
-                "lastname": getattr(patient, "getLastname", lambda: u"")(),
-                "maternal_lastname": getattr(patient, "getMaternalLastname", lambda: u"")(),
-            })
-        except Exception:
-            patient_fullname = u""
-
-        if sample_patient_fullname and sample_patient_fullname != patient_fullname:
+        if sample_patient_fullname != patient_fullname:
             msg = _("Patient fullname of sample is not equal to %s")
-            val = patient_fullname or _("<no value>")
+            val = api.safe_unicode(patient_fullname) or _("<no value>")
             icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
             item["after"]["Patient"] = self.icon_tag("info", **icon_args)
         else:
@@ -184,8 +163,10 @@ class SamplesListingAdapter(object):
 
     @check_installed(None)
     def before_render(self):
+        # Additional columns
         rv_keys = map(lambda r: r["id"], self.listing.review_states)
         for column_id, column_values in ADD_COLUMNS:
+            # skip MRN column for patient context
             if column_id == "MRN" and self.is_patient_context():
                 continue
             add_column(
@@ -195,8 +176,10 @@ class SamplesListingAdapter(object):
                 after=column_values.get("after", None),
                 review_states=rv_keys)
 
+        # Add review_states
         for status in ADD_STATUSES:
             sid = status.get("id")
+            # skip temporary MRN for patient context
             if sid == "temp_mrn" and self.is_patient_context():
                 continue
             after = status.get("after", None)
@@ -206,4 +189,6 @@ class SamplesListingAdapter(object):
             add_review_state(self.listing, status, after=after, before=before)
 
     def is_patient_context(self):
+        """Check if the current context is a patient
+        """
         return api.get_portal_type(self.context) == "Patient"
