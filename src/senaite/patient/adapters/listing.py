@@ -96,6 +96,11 @@ class SamplesListingAdapter(object):
         """Inserta valores de MRN y Paciente en la fila del listado
            usando siempre valores normalizados.
         """
+        # Inicializar estructuras para evitar KeyError
+        item.setdefault("replace", {})
+        item.setdefault("after", {})
+
+        # Icono de MRN temporal
         if self.show_icon_temp_mrn and getattr(obj, "isMedicalRecordTemporary", False):
             after_icons = item["after"].get("getId", "")
             kwargs = {"width": 16, "title": _("Temporary MRN")}
@@ -103,10 +108,16 @@ class SamplesListingAdapter(object):
             item["after"].update({"getId": after_icons})
 
         # ── Normalizar MRN y nombre ────────────────────────────────
-        raw_mrn = getattr(obj, "getMedicalRecordNumberValue", lambda: None)()
+        try:
+            raw_mrn = getattr(obj, "getMedicalRecordNumberValue", lambda: None)()
+        except Exception:
+            raw_mrn = None
         sample_patient_mrn = _normalize_mrn(raw_mrn)
 
-        raw_name = getattr(obj, "getPatientFullName", lambda: None)()
+        try:
+            raw_name = getattr(obj, "getPatientFullName", lambda: None)()
+        except Exception:
+            raw_name = None
         sample_patient_fullname = _extract_fullname(raw_name) if raw_name else u""
 
         # Mostrar valores planos
@@ -123,8 +134,7 @@ class SamplesListingAdapter(object):
                 sample_patient_mrn, e)
 
         if not (patient and hasattr(patient, "absolute_url")):
-            # No se encontró paciente → dejamos valores planos
-            return
+            return  # dejamos valores planos
 
         patient_url = api.get_url(patient)
 
@@ -133,21 +143,29 @@ class SamplesListingAdapter(object):
             item["replace"]["MRN"] = get_link(patient_url, sample_patient_mrn)
 
         # Validación MRN
-        patient_mrn = _normalize_mrn(getattr(patient, "getMRN", lambda: u"")())
-        if sample_patient_mrn != patient_mrn:
+        try:
+            patient_mrn = _normalize_mrn(getattr(patient, "getMRN", lambda: u"")())
+        except Exception:
+            patient_mrn = u""
+
+        if sample_patient_mrn and sample_patient_mrn != patient_mrn:
             msg = _("Patient MRN of sample is not equal to %s")
             val = patient_mrn or _("<no value>")
             icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
             item["after"]["MRN"] = self.icon_tag("info", **icon_args)
 
         # Validación nombre
-        patient_fullname = _extract_fullname({
-            "firstname": getattr(patient, "getFirstname", lambda: u"")(),
-            "middlename": getattr(patient, "getMiddlename", lambda: u"")(),
-            "lastname": getattr(patient, "getLastname", lambda: u"")(),
-            "maternal_lastname": getattr(patient, "getMaternalLastname", lambda: u"")(),
-        })
-        if sample_patient_fullname != patient_fullname:
+        try:
+            patient_fullname = _extract_fullname({
+                "firstname": getattr(patient, "getFirstname", lambda: u"")(),
+                "middlename": getattr(patient, "getMiddlename", lambda: u"")(),
+                "lastname": getattr(patient, "getLastname", lambda: u"")(),
+                "maternal_lastname": getattr(patient, "getMaternalLastname", lambda: u"")(),
+            })
+        except Exception:
+            patient_fullname = u""
+
+        if sample_patient_fullname and sample_patient_fullname != patient_fullname:
             msg = _("Patient fullname of sample is not equal to %s")
             val = patient_fullname or _("<no value>")
             icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
