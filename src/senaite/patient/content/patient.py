@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*- 
 #
 # This file is part of SENAITE.PATIENT.
 #
@@ -24,14 +24,10 @@ from AccessControl import ClassSecurityInfo
 from bika.lims import api
 from bika.lims.api.mail import is_valid_email_address
 from datetime import datetime
-from dateutil.relativedelta import relativedelta
 from plone.autoform import directives
 from plone.supermodel import model
 from plone.supermodel.directives import fieldset
-from plone.autoform import directives as autoform_directives
-from z3c.form.browser.text import TextWidget
 from Products.CMFCore import permissions
-from Products.CMFPlone.utils import safe_unicode
 from senaite.core.api import dtime
 from senaite.core.behaviors import IClientShareable
 from senaite.core.content.base import Container
@@ -153,7 +149,7 @@ class IPatientSchema(model.Schema):
 
     firstname = schema.TextLine(
         title=_(u"label_patient_firstname", default=u"Firstname"),
-        description=_(u"Primer nombre paciente"),
+        description=_(u"Patient firstname"),
         required=False,
     )
 
@@ -169,11 +165,13 @@ class IPatientSchema(model.Schema):
         required=False,
     )
 
+    # --- Added field: maternal_lastname (minimal change, keeps native behavior) ---
     maternal_lastname = schema.TextLine(
         title=_(u"label_patient_maternal_lastname", default=u"Maternal Lastname"),
         description=_(u"Patient maternal lastname"),
         required=False,
     )
+    # --- end addition ---
 
     sex = schema.Choice(
         title=_(u"label_patient_sex", default=u"Sex"),
@@ -197,53 +195,6 @@ class IPatientSchema(model.Schema):
         source="senaite.patient.vocabularies.marital_statuses",
         default="UNK",
         required=True,
-    )
-
-    # Campos de fecha de nacimiento y edad (en la pestaña principal)
-    directives.widget("birthdate",
-                      DatetimeWidget,
-                      show_time=False)
-    birthdate = DatetimeField(
-        title=_(u"label_patient_birthdate", default=u"Birthdate"),
-        description=_(u"Patient birthdate"),
-        required=False,
-    )
-    # XXX core's DateTimeWidget relies on field's get_max function if not 'max'
-    #     property is explicitly set to the widget
-    birthdate.get_max = get_max_birthdate
-
-    estimated_birthdate = schema.Bool(
-        title=_(
-            u"label_patient_estimated_birthdate",
-            default=u"Birthdate is estimated"
-        ),
-        description=_(
-            u"description_patient_estimated_birthdate",
-            default=u"Select this option if the patient's date of birth is "
-                    u"estimated"
-        ),
-        default=False,
-        required=False,
-    )
-
-    # Campo edad calculada (visible)
-    directives.widget("age", TextWidget)
-    age = schema.TextLine(
-        title=_(u"Age"),
-        description=_(u"Calculated age based on date of birth"),
-        required=False,
-        readonly=True,
-    )
-
-    deceased = schema.Bool(
-        title=_(
-            u"label_patient_deceased",
-            default=u"Deceased"),
-        description=_(
-            u"description_patient_deceased",
-            default=u"Select this option if the patient is deceased"),
-        required=False,
-        default=False,
     )
 
     directives.widget(
@@ -360,6 +311,55 @@ class IPatientSchema(model.Schema):
         ]
     )
 
+    estimated_birthdate = schema.Bool(
+        title=_(
+            u"label_patient_estimated_birthdate",
+            default=u"Birthdate is estimated"
+        ),
+        description=_(
+            u"description_patient_estimated_birthdate",
+            default=u"Select this option if the patient's date of birth is "
+                    u"estimated"
+        ),
+        default=False,
+        required=False,
+    )
+
+    directives.widget("birthdate",
+                      DatetimeWidget,
+                      show_time=False)
+    birthdate = DatetimeField(
+        title=_(u"label_patient_birthdate", default=u"Birthdate"),
+        description=_(u"Patient birthdate"),
+        required=False,
+    )
+    # XXX core's DateTimeWidget relies on field's get_max function if not 'max'
+    #     property is explicitly set to the widget
+    birthdate.get_max = get_max_birthdate
+
+    age = schema.TextLine(
+        title=_(u"label_patient_age", default=u"Age"),
+        description=_(
+            u"description_patient_age",
+            default=_(
+                u"Age in YMD (Years-Months-Days) format. "
+                u"Examples: '45y 3m 20d', '67y'."
+            )
+        ),
+        required=False,
+    )
+
+    deceased = schema.Bool(
+        title=_(
+            u"label_patient_deceased",
+            default=u"Deceased"),
+        description=_(
+            u"description_patient_deceased",
+            default=u"Select this option if the patient is deceased"),
+        required=False,
+        default=False,
+    )
+
     @invariant
     def validate_mrn(data):
         """Checks if the patient MRN # is unique
@@ -453,6 +453,15 @@ class IPatientSchema(model.Schema):
         if now < dob:
             raise Invalid(_("Date of birth cannot be a future date"))
 
+    @invariant
+    def validate_age(data):
+        """Validate the age is in YMD format."""
+        if not data.age:
+            return
+
+        if not dtime.is_ymd(data.age):
+            raise Invalid(_("Age must be in YMD format"))
+
 
 @implementer(IPatient, IPatientSchema, IClientShareable)
 class Patient(Container):
@@ -465,80 +474,31 @@ class Patient(Container):
 
     security = ClassSecurityInfo()
 
-    def calculate_age(self, birthdate, on_date=None):
-        """Calculate age from birthdate to a specific date - Python 2.7 compatible"""
-        if not on_date:
-            on_date = datetime.now().date()
-        if not birthdate:
-            return ""
-
-        # Usar relativedelta para calcular la edad
-        age = relativedelta(on_date, birthdate)
-
-        # Formato compatible con Python 2.7
-        if age.years > 0:
-            return u"{} años".format(age.years)
-        elif age.months > 0:
-            return u"{} meses".format(age.months)
-        else:
-            return u"{} días".format(age.days)
-
-    @security.protected(permissions.View)
-    def getAge(self):
-        """Returns the age with the field accessor.
-        If age is empty but birthdate exists, calculate it and try to save it.
-        """
-        accessor = self.accessor("age")
-        age = accessor(self) or u""
-
-        if not age:
-            # obtain birthdate as a plain date (getBirthdate by default returns date)
-            birthdate = self.getBirthdate()
-            if birthdate:
-                # calculate
-                try:
-                    age = self.calculate_age(birthdate)
-                except Exception:
-                    age = u""
-                # try to persist; wrap in try/except because view may run
-                # under users without Modify permission
-                if age:
-                    try:
-                        self.setAge(age)
-                    except Exception:
-                        # no-op: avoid breaking read access if save fails
-                        pass
-
-        return age
-
-    @security.protected(permissions.ModifyPortalContent)
-    def setAge(self, value):
-        """Set age by the field mutator"""
-        mutator = self.mutator("age")
-        mutator(self, value)
-
     @security.protected(permissions.View)
     def Title(self):
-        # Devolver unicode con las 4 partes
-        return safe_unicode(self.getFullname())
+        return self.getFullname()
 
     @security.protected(permissions.View)
     def getMRN(self):
         """Returns the MRN with the field accessor
         """
         accessor = self.accessor("mrn")
-        value = accessor(self) or u""
-        return api.safe_unicode(value)
+        value = accessor(self) or ""
+        return value.encode("utf-8")
 
     @security.protected(permissions.ModifyPortalContent)
     def setMRN(self, value):
         """Set MRN by the field accessor
         """
+        # XXX These checks will be quite common on setters linked to `required`
+        # fields. We could add a decorator or, if we use our own implementation
+        # of BaseField, take this into consideration in the `get(self)` func.
         if not value:
             raise ValueError("Value is missing or empty")
 
         if not isinstance(value, string_types):
-            value = u""
+            raise ValueError("Type is not supported: {}".format(repr(value)))
+
         value = value.strip()
         accessor = self.accessor("mrn")
         if accessor(self) == api.safe_unicode(value):
@@ -551,16 +511,6 @@ class Patient(Container):
 
         mutator = self.mutator("mrn")
         return mutator(self, api.safe_unicode(value))
-
-    # Compat accessor used by listings/widgets.
-    @security.protected(permissions.View)
-    def getMedicalRecordNumberValue(self):
-        try:
-            return self.getMRN()
-        except Exception:
-            accessor = self.accessor("mrn")
-            value = accessor(self) or u""
-            return api.safe_unicode(value)
 
     @security.protected(permissions.View)
     def getIdentifiers(self):
@@ -647,78 +597,62 @@ class Patient(Container):
     @security.protected(permissions.View)
     def getFirstname(self):
         accessor = self.accessor("firstname")
-        value = accessor(self) or u""
-        return api.safe_unicode(value).strip()
+        value = accessor(self) or ""
+        return value.encode("utf-8")
 
     @security.protected(permissions.ModifyPortalContent)
     def setFirstname(self, value):
         if not isinstance(value, string_types):
             value = u""
         mutator = self.mutator("firstname")
-        mutator(self, api.safe_unicode(value).strip())
+        mutator(self, api.safe_unicode(value.strip()))
 
     @security.protected(permissions.View)
     def getMiddlename(self):
         accessor = self.accessor("middlename")
-        value = accessor(self) or u""
-        return api.safe_unicode(value).strip()
+        value = accessor(self) or ""
+        return value.encode("utf-8")
 
     @security.protected(permissions.ModifyPortalContent)
     def setMiddlename(self, value):
         if not isinstance(value, string_types):
             value = u""
         mutator = self.mutator("middlename")
-        mutator(self, api.safe_unicode(value).strip())
+        mutator(self, api.safe_unicode(value.strip()))
 
     @security.protected(permissions.View)
-    def getPaternalLastname(self):
-        """Accessor for the stored paternal/primary lastname field only."""
+    def getLastname(self):
         accessor = self.accessor("lastname")
-        value = accessor(self) or u""
-        return api.safe_unicode(value).strip()
+        value = accessor(self) or ""
+        return value.encode("utf-8")
 
     @security.protected(permissions.ModifyPortalContent)
     def setLastname(self, value):
-        """Mutator for the stored paternal/primary lastname field."""
         if not isinstance(value, string_types):
             value = u""
         mutator = self.mutator("lastname")
-        mutator(self, api.safe_unicode(value).strip())
+        mutator(self, api.safe_unicode(value.strip()))
 
+    # --- Added getters/setters for maternal_lastname (minimal change) ---
     @security.protected(permissions.View)
     def getMaternalLastname(self):
         accessor = self.accessor("maternal_lastname")
-        value = accessor(self) or u""
-        return api.safe_unicode(value).strip()
+        value = accessor(self) or ""
+        return value.encode("utf-8")
 
     @security.protected(permissions.ModifyPortalContent)
     def setMaternalLastname(self, value):
         if not isinstance(value, string_types):
             value = u""
         mutator = self.mutator("maternal_lastname")
-        mutator(self, api.safe_unicode(value).strip())
-
-    @security.protected(permissions.View)
-    def getLastname(self):
-        """Helper that returns both lastnames joined (compat-friendly)."""
-        parts = [self.getPaternalLastname(), self.getMaternalLastname()]
-        text = u" ".join([p for p in parts if p])
-        return u" ".join(text.split())
-
-    # Alias for backward compatibility
-    getSurname = getLastname
+        mutator(self, api.safe_unicode(value.strip()))
+    # --- end addition ---
 
     @security.protected(permissions.View)
     def getFullname(self):
-        # unicode, 4 partes, colapsando espacios
-        parts = [
-            self.getFirstname(),
-            self.getMiddlename(),
-            self.getPaternalLastname(),
-            self.getMaternalLastname(),
-        ]
-        text = u" ".join([p for p in parts if p])
-        return u" ".join(text.split())
+        # Create the fullname from firstname + middlename + lastname + maternal_lastname
+        parts = [self.getFirstname(), self.getMiddlename(), self.getLastname(), self.getMaternalLastname()]
+        return " ".join(filter(None, parts))
 
     ###
     # EMAIL AND PHONE
@@ -729,8 +663,8 @@ class Patient(Container):
         """Get email with the field accessor
         """
         accessor = self.accessor("email")
-        value = accessor(self) or u""
-        return api.safe_unicode(value).strip()
+        value = accessor(self) or ""
+        return value.encode("utf-8")
 
     @security.protected(permissions.ModifyPortalContent)
     def setEmail(self, value):
@@ -739,7 +673,7 @@ class Patient(Container):
         if not isinstance(value, string_types):
             value = u""
         mutator = self.mutator("email")
-        mutator(self, api.safe_unicode(value).strip())
+        mutator(self, api.safe_unicode(value.strip()))
 
     @security.protected(permissions.View)
     def getAdditionalEmails(self):
@@ -760,7 +694,7 @@ class Patient(Container):
         """Get phone by the field accessor
         """
         accessor = self.accessor("phone")
-        return accessor(self) or u""
+        return accessor(self) or ""
 
     @security.protected(permissions.ModifyPortalContent)
     def setPhone(self, value):
@@ -769,7 +703,7 @@ class Patient(Container):
         if not isinstance(value, string_types):
             value = u""
         mutator = self.mutator("phone")
-        mutator(self, api.safe_unicode(value).strip())
+        mutator(self, api.safe_unicode(value.strip()))
 
     @security.protected(permissions.View)
     def getAdditionalPhoneNumbers(self):
@@ -858,21 +792,10 @@ class Patient(Container):
 
     @security.protected(permissions.ModifyPortalContent)
     def setBirthdate(self, value):
-        """Set birthdate by the field accessor and update age"""
+        """Set birthdate by the field accessor
+        """
         mutator = self.mutator("birthdate")
-        result = mutator(self, value)
-
-        # Calculate and set age after updating birthdate
-        birthdate = self.getBirthdate()
-        if birthdate:
-            age = self.calculate_age(birthdate)
-            try:
-                self.setAge(age)
-            except Exception:
-                # If saving fails (permissions), ignore to avoid breaking the flow
-                pass
-
-        return result
+        return mutator(self, value)
 
     @security.protected(permissions.View)
     def getAddress(self):
@@ -932,29 +855,30 @@ class Patient(Container):
         mutator = self.mutator("estimated_birthdate")
         return mutator(self, value)
 
-    @security.protected(permissions.ModifyPortalContent)
-    def setEstimatedBirthdate(self, value):
-        """Set if the patient's date of birth is estimated
-        """
-        mutator = self.mutator("estimated_birthdate")
-        return mutator(self, value)
-
-    # ==== AÑADE ESTE MÉTODO AL FINAL DE LA CLASE ====
     @security.protected(permissions.View)
-    def getTemporary(self):
-        """Return True if MRN is temporary - COMPATIBLE con tus 4 campos
+    def getAge(self):
+        """Returns the age of the patient at current time
         """
-        # Verificar si existe el campo 'Temporary'
-        if hasattr(self, 'getField') and self.getField('Temporary'):
-            field = self.getField('Temporary')
-            return field.get(self)
-        
-        # Backward compatibility - verificar métodos alternativos
-        if hasattr(self, 'isMedicalRecordTemporary'):
-            return self.isMedicalRecordTemporary()
-        
-        # Por defecto, no es temporal
-        return False
+        dob = self.getBirthdate()
+        return dtime.get_ymd(dob) or ""
 
-    # Alias para backward compatibility
-    isMedicalRecordTemporary = getTemporary
+    @security.protected(permissions.ModifyPortalContent)
+    def setAge(self, value):
+        """Set the age of the patient at current time
+        """
+        if not dtime.is_ymd(value):
+            return
+
+        # don't assign age unless estimated DoB
+        if not self.getEstimatedBirthdate():
+            return
+
+        # update the value of the date of birth
+        dob = dtime.get_since_date(value)
+        self.setBirthdate(dob)
+
+    # BBB AT schema field property
+    Age = property(getAge, setAge)
+
+    # no value is stored for age, but relies on birthdate
+    age = property(getAge, setAge)
