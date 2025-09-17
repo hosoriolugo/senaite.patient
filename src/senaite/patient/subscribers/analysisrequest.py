@@ -3,13 +3,13 @@
 # This file is part of SENAITE.PATIENT.
 #
 # SENAITE.PATIENT is free software: you can redistribute it and/or modify it
-# under the terms of the GNU General Public License as published by the Free
-# Software Foundation, version 2.
+# under the terms of the GNU General Public License as published by the
+# Free Software Foundation, version 2.
 #
-# This program is distributed in the hope that it will be useful, but WITHOUT
-# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
-# details.
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License along with
 # this program; if not, write to the Free Software Foundation, Inc., 51
@@ -24,6 +24,7 @@ from senaite.core.behaviors import IClientShareableBehavior
 from senaite.patient import api as patient_api
 from senaite.patient import check_installed
 from senaite.patient import logger
+from senaite.patient.api import _normalize_mrn, _extract_fullname
 
 
 def _is_ar(obj):
@@ -91,7 +92,6 @@ def add_cc_email(sample, email):
 
 def update_patient(instance):
     """Crea/actualiza el Patient y asegura el enlace en el AR."""
-    # Evitar cualquier caso raro (por ejemplo, during container events)
     if not _is_ar(instance):
         return None
 
@@ -101,11 +101,12 @@ def update_patient(instance):
 
     get_mrn_val = _getattr_callable(instance, "getMedicalRecordNumberValue")
     mrn = get_mrn_val() if get_mrn_val else None
-    # Permitir vacío si la config no requiere pacientes, pero no hacemos nada
-    if mrn is None or mrn == "":
+    mrn = _normalize_mrn(mrn)  # 🔹 normalización segura
+
+    if not mrn:
         return None
 
-    # Buscar Patient por MRN (incluye inactivos)
+    # Buscar Patient por MRN
     patient = patient_api.get_patient_by_mrn(mrn, include_inactive=True)
 
     # Crear Patient si no existe
@@ -115,7 +116,6 @@ def update_patient(instance):
         else:
             container = patient_api.get_patient_folder()
 
-        # Verificar permisos para crear Patient
         if not patient_api.is_patient_creation_allowed(container):
             logger.warn("Patient creation not allowed in '{}' for MRN '{}'"
                         .format(api.get_path(container), mrn))
@@ -162,7 +162,7 @@ def update_patient(instance):
         except Exception:
             pass
 
-    # Reindexar para que el listado recoja MRN/Paciente
+    # Reindexar
     try:
         instance.reindexObject()
     except Exception:
@@ -178,6 +178,7 @@ def get_patient_fields(instance):
     """Extrae los campos de paciente desde el AR para crear/actualizar Patient."""
     get_mrn_val = _getattr_callable(instance, "getMedicalRecordNumberValue")
     mrn = get_mrn_val() if get_mrn_val else None
+    mrn = _normalize_mrn(mrn)  # 🔹 siempre limpio
 
     sex = instance.getField("Sex").get(instance) if instance.getField("Sex") else None
     gender = instance.getField("Gender").get(instance) if instance.getField("Gender") else None
@@ -198,7 +199,6 @@ def get_patient_fields(instance):
         firstname = name_field.get_firstname(instance)
         middlename = name_field.get_middlename(instance)
         lastname = name_field.get_lastname(instance)
-        # 🔹 Ajuste: soportar maternal_lastname también
         maternal_lastname = ""
         get_maternal = getattr(name_field, "get_maternal_lastname", None)
         if callable(get_maternal):
@@ -212,6 +212,14 @@ def get_patient_fields(instance):
             "address": api.safe_unicode(address),
         }
 
+    # 🔹 nombre completo estandarizado
+    fullname = _extract_fullname({
+        "firstname": firstname,
+        "middlename": middlename,
+        "lastname": lastname,
+        "maternal_lastname": maternal_lastname,
+    })
+
     return {
         "mrn": mrn,
         "sex": sex,
@@ -223,6 +231,7 @@ def get_patient_fields(instance):
         "middlename": api.safe_unicode(middlename),
         "lastname": api.safe_unicode(lastname),
         "maternal_lastname": api.safe_unicode(maternal_lastname),
+        "fullname": api.safe_unicode(fullname),
     }
 
 
