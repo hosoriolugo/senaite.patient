@@ -66,7 +66,8 @@ ADD_COLUMNS = [
 
 
 class SamplesListingAdapter(object):
-    """Generic adapter for sample listings
+    """Adapter para mostrar MRN y Paciente en listados de muestras
+       Forma nativa: siempre lee desde el Paciente vinculado.
     """
     adapts(IListingView)
     implements(IListingViewAdapter)
@@ -99,65 +100,61 @@ class SamplesListingAdapter(object):
 
     @check_installed(None)
     def folder_item(self, obj, item, index):
-        """Inject MRN and Patient columns into Sample listings.
-        Now resolves always from the linked Patient (native behavior).
+        """Pinta MRN y nombre desde el Paciente vinculado.
+        Valida consistencia entre muestra y paciente.
         """
-        if (self.show_icon_temp_mrn and
-                callable(getattr(obj, "isMedicalRecordTemporary", None)) and
-                obj.isMedicalRecordTemporary()):
-            # Add an icon after the sample ID
+        # 1. Icono de MRN temporal
+        if self.show_icon_temp_mrn and getattr(obj, "isMedicalRecordTemporary", False):
             after_icons = item["after"].get("getId", "")
             kwargs = {"width": 16, "title": _("Temporary MRN")}
             after_icons += self.icon_tag("id-card-red", **kwargs)
             item["after"].update({"getId": after_icons})
 
-        # Try to resolve the linked patient object
-        patient = None
-        try:
-            # Preferred: Sample.getPatient()
-            if hasattr(obj, "getPatient"):
-                patient = obj.getPatient()
-        except Exception:
-            patient = None
-
-        # Fallback: search by MRN in catalog
+        # 2. Intentar obtener el paciente relacionado
+        patient = getattr(obj, "getPatient", lambda: None)()
         if not patient:
-            try:
-                sample_patient_mrn = obj.getMedicalRecordNumberValue()
-                if sample_patient_mrn:
-                    patient = get_patient_by_mrn(sample_patient_mrn)
-            except Exception:
-                patient = None
+            # fallback por MRN en el sample
+            sample_mrn = getattr(obj, "getMedicalRecordNumberValue", lambda: "")()
+            if sample_mrn:
+                patient = get_patient_by_mrn(sample_mrn)
 
-        # If no patient found, leave empty
         if not patient:
             item["MRN"] = ""
             item["Patient"] = ""
             return
 
-        # Extract MRN and Fullname from patient (always fresh)
-        try:
-            patient_mrn = patient.getMRN() or ""
-        except Exception:
-            patient_mrn = ""
+        # 3. Obtener datos directamente desde el catálogo del paciente
+        catalog = api.get_tool("portal_catalog")
+        brains = catalog(UID=api.get_uid(patient))
+        if brains:
+            brain = brains[0]
+            patient_mrn = getattr(brain, "patient_mrn", "")
+            patient_fullname = getattr(brain, "patient_fullname", "")
+        else:
+            # fallback a métodos del objeto
+            patient_mrn = getattr(patient, "getMRN", lambda: "")()
+            patient_fullname = getattr(patient, "getFullname", lambda: "")()
 
-        try:
-            patient_fullname = patient.getFullname() or ""
-        except Exception:
-            patient_fullname = ""
-
-        # Set values in listing
+        # 4. Mostrar en columnas con link al paciente
         item["MRN"] = patient_mrn
-        item["Patient"] = patient_fullname
+        patient_url = "{}/@@view".format(api.get_url(patient))
+        item["Patient"] = get_link(patient_url, patient_fullname)
 
-        # Link to patient object if available
-        patient_url = api.get_url(patient)
-        if patient_mrn:
-            item.setdefault("replace", {})
-            item["replace"]["MRN"] = get_link(patient_url, patient_mrn)
-        if patient_fullname:
-            patient_view_url = "{}/@@view".format(patient_url)
-            item["Patient"] = get_link(patient_view_url, patient_fullname)
+        # 5. Validaciones de consistencia
+        sample_mrn = getattr(obj, "getMedicalRecordNumberValue", lambda: "")()
+        sample_name = getattr(obj, "getPatientFullName", lambda: "")()
+
+        if sample_mrn and sample_mrn != patient_mrn:
+            msg = _("Sample MRN does not match patient MRN: %s")
+            val = api.safe_unicode(patient_mrn) or _("<no value>")
+            icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
+            item["after"]["MRN"] = self.icon_tag("info", **icon_args)
+
+        if sample_name and sample_name != patient_fullname:
+            msg = _("Sample patient name does not match: %s")
+            val = api.safe_unicode(patient_fullname) or _("<no value>")
+            icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
+            item["after"]["Patient"] = self.icon_tag("info", **icon_args)
 
     @viewcache
     def get_patient_by_mrn(self, mrn):
@@ -172,7 +169,6 @@ class SamplesListingAdapter(object):
         # Additional columns
         rv_keys = map(lambda r: r["id"], self.listing.review_states)
         for column_id, column_values in ADD_COLUMNS:
-            # skip MRN column for patient context
             if column_id == "MRN" and self.is_patient_context():
                 continue
             add_column(
@@ -185,7 +181,6 @@ class SamplesListingAdapter(object):
         # Add review_states
         for status in ADD_STATUSES:
             sid = status.get("id")
-            # skip temporary MRN for patient context
             if sid == "temp_mrn" and self.is_patient_context():
                 continue
             after = status.get("after", None)
