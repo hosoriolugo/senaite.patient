@@ -6,10 +6,10 @@
 # under the terms of the GNU General Public License as published by the Free
 # Software Foundation, version 2.
 #
-# This program is distributed in the hope that it will be useful, but WITHOUT
-# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
-# details.
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License along with
 # this program; if not, write to the Free Software Foundation, Inc., 51
@@ -98,18 +98,20 @@ class SamplesListingAdapter(object):
 
     @check_installed(None)
     def folder_item(self, obj, item, index):
-        if self.show_icon_temp_mrn and obj.isMedicalRecordTemporary:
+        # ⚠️ Aquí había un bug: faltaban los paréntesis
+        if self.show_icon_temp_mrn and obj.isMedicalRecordTemporary():
             # Add an icon after the sample ID
             after_icons = item["after"].get("getId", "")
             kwargs = {"width": 16, "title": _("Temporary MRN")}
             after_icons += self.icon_tag("id-card-red", **kwargs)
             item["after"].update({"getId": after_icons})
 
+        # ⚠️ Aquí también: se pasaba la función, no el valor
         sample_patient_mrn = api.to_utf8(
-            obj.getMedicalRecordNumberValue, default="")
+            obj.getMedicalRecordNumberValue(), default="")
 
         sample_patient_fullname = api.to_utf8(
-            obj.getPatientFullName, default="")
+            obj.getPatientFullName(), default="")
 
         item["MRN"] = sample_patient_mrn
         item["Patient"] = sample_patient_fullname
