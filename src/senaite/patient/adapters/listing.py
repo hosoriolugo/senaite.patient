@@ -6,10 +6,10 @@
 # under the terms of the GNU General Public License as published by the Free
 # Software Foundation, version 2.
 #
-# SENAITE.PATIENT is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-# General Public License for more details.
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+# details.
 #
 # You should have received a copy of the GNU General Public License along with
 # this program; if not, write to the Free Software Foundation, Inc., 51
@@ -98,108 +98,54 @@ class SamplesListingAdapter(object):
 
     @check_installed(None)
     def folder_item(self, obj, item, index):
-        # Icono para MRN temporal (mantenemos comportamiento nativo)
-        try:
-            if self.show_icon_temp_mrn and getattr(obj, "isMedicalRecordTemporary", False):
-                after_icons = item["after"].get("getId", "")
-                kwargs = {"width": 16, "title": _("Temporary MRN")}
-                after_icons += self.icon_tag("id-card-red", **kwargs)
-                item["after"].update({"getId": after_icons})
-        except Exception:
-            # No romper listado si algo raro
-            pass
+        if self.show_icon_temp_mrn and obj.isMedicalRecordTemporary:
+            # Add an icon after the sample ID
+            after_icons = item["after"].get("getId", "")
+            kwargs = {"width": 16, "title": _("Temporary MRN")}
+            after_icons += self.icon_tag("id-card-red", **kwargs)
+            item["after"].update({"getId": after_icons})
 
-        # --- MRN del AR (defensivo) ---
-        sample_patient_mrn = u""
-        try:
-            sample_patient_mrn = api.to_utf8(
-                getattr(obj, "getMedicalRecordNumberValue", None),
-                default=u"")
-        except Exception:
-            try:
-                sample_patient_mrn = api.to_utf8(
-                    getattr(obj, "getMedicalRecordNumber", None),
-                    default=u"")
-            except Exception:
-                sample_patient_mrn = u""
+        sample_patient_mrn = api.to_utf8(
+            obj.getMedicalRecordNumberValue, default="")
 
-        # --- Nombre del AR (defensivo) ---
-        sample_patient_fullname = u""
-        try:
-            getter = getattr(obj, "getFullname", None)
-            if callable(getter):
-                sample_patient_fullname = api.to_utf8(getter(), default=u"")
-        except Exception:
-            sample_patient_fullname = u""
+        sample_patient_fullname = api.to_utf8(
+            obj.getPatientFullName, default="")
 
-        # Poner valores base en la fila (aunque estén vacíos → no romper)
-        item["MRN"] = sample_patient_mrn or u""
-        item["Patient"] = sample_patient_fullname or u""
+        item["MRN"] = sample_patient_mrn
+        item["Patient"] = sample_patient_fullname
 
-        # Intentar enlazar al paciente real por MRN
-        patient = None
-        if sample_patient_mrn:
-            try:
-                patient = self.get_patient_by_mrn(sample_patient_mrn)
-            except Exception:
-                patient = None
+        # get the patient object
+        patient = self.get_patient_by_mrn(sample_patient_mrn)
 
         if not patient:
-            # Sin paciente (o MRN vacío) → dejamos valores planos
             return
 
-        # Enlace a ficha de paciente (defensivo)
-        patient_url = None
-        try:
-            patient_url = api.get_url(patient)
-        except Exception:
-            patient_url = None
+        # Link to patient object
+        patient_url = api.get_url(patient)
+        if sample_patient_mrn:
+            item["replace"]["MRN"] = get_link(
+                patient_url, sample_patient_mrn)
 
-        if patient_url and sample_patient_mrn:
-            try:
-                item["replace"]["MRN"] = get_link(patient_url, sample_patient_mrn)
-            except Exception:
-                # Si falla la creación del link, dejamos el texto plano
-                item["replace"].pop("MRN", None)
+        patient_mrn = patient.getMRN()
+        patient_fullname = patient.getFullname()
 
-        # Comparativas (con guards)
-        try:
-            patient_mrn = u""
-            try:
-                patient_mrn = api.safe_unicode(patient.getMRN() or u"")
-            except Exception:
-                patient_mrn = u""
+        # patient MRN is different
+        if sample_patient_mrn != patient_mrn:
+            msg = _("Patient MRN of sample is not equal to %s")
+            val = api.safe_unicode(patient_mrn) or _("<no value>")
+            icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
+            item["after"]["MRN"] = self.icon_tag("info", **icon_args)
 
-            if (sample_patient_mrn or u"") != (patient_mrn or u""):
-                msg = _("Patient MRN of sample is not equal to %s")
-                val = api.safe_unicode(patient_mrn) or _("<no value>")
-                icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
-                item["after"]["MRN"] = self.icon_tag("info", **icon_args)
-        except Exception:
-            pass
-
-        try:
-            patient_fullname = u""
-            try:
-                patient_fullname = api.safe_unicode(patient.getFullname() or u"")
-            except Exception:
-                patient_fullname = u""
-
-            if (sample_patient_fullname or u"") != (patient_fullname or u""):
-                msg = _("Patient fullname of sample is not equal to %s")
-                val = patient_fullname or _("<no value>")
-                icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
-                item["after"]["Patient"] = self.icon_tag("info", **icon_args)
-            else:
-                if patient_url and sample_patient_fullname:
-                    try:
-                        patient_view_url = "{}/@@view".format(patient_url)
-                        item["Patient"] = get_link(patient_view_url, sample_patient_fullname)
-                    except Exception:
-                        # Si no podemos linkar, dejamos el texto tal cual
-                        pass
-        except Exception:
-            pass
+        if sample_patient_fullname != patient_fullname:
+            msg = _("Patient fullname of sample is not equal to %s")
+            val = api.safe_unicode(patient_fullname) or _("<no value>")
+            icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
+            item["after"]["Patient"] = self.icon_tag("info", **icon_args)
+        else:
+            patient_view_url = "{}/@@view".format(patient_url)
+            patient_view_url = get_link(
+                    patient_view_url, sample_patient_fullname)
+            item["Patient"] = patient_view_url
 
     @viewcache
     def get_patient_by_mrn(self, mrn):
