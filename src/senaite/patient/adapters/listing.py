@@ -28,7 +28,7 @@ from senaite.app.listing.utils import add_column
 from senaite.app.listing.utils import add_review_state
 from senaite.patient import check_installed
 from senaite.patient import messageFactory as _
-from senaite.patient.api import get_patient
+from senaite.patient.api import get_patient_by_mrn
 from zope.component import adapts
 from zope.component import getMultiAdapter
 from zope.interface import implements
