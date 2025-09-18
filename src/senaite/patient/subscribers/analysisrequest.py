@@ -3,13 +3,13 @@
 # This file is part of SENAITE.PATIENT.
 #
 # SENAITE.PATIENT is free software: you can redistribute it and/or modify it
-# under the terms of the GNU General Public License as published by the
-# Free Software Foundation, version 2.
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, version 2.
 #
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU General Public License for more details.
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+# details.
 #
 # You should have received a copy of the GNU General Public License along with
 # this program; if not, write to the Free Software Foundation, Inc., 51
@@ -19,52 +19,35 @@
 # Some rights reserved, see README and LICENSE.
 
 from bika.lims import api
-from bika.lims.interfaces import IAnalysisRequest
 from senaite.core.behaviors import IClientShareableBehavior
 from senaite.patient import api as patient_api
 from senaite.patient import check_installed
 from senaite.patient import logger
-from senaite.patient.api import _normalize_mrn, _extract_fullname
-
-
-def _is_ar(obj):
-    """True solo si es un AnalysisRequest (incluye retest/partition/secondary)."""
-    try:
-        return IAnalysisRequest.providedBy(obj)
-    except Exception:
-        return False
-
-
-def _getattr_callable(obj, name, default=None):
-    """Obtiene atributo si existe y es callable, si no devuelve default."""
-    val = getattr(obj, name, None)
-    if callable(val):
-        return val
-    return default
 
 
 @check_installed(None)
 def on_object_created(instance, event):
-    """Se dispara al crear la muestra (AR)."""
-    if not _is_ar(instance):
-        return
-
+    """Event handler when a sample was created
+    """
     patient = update_patient(instance)
 
-    # no patient creado cuando el MRN es temporal o no hay MRN
+    # no patient created when the MRN is temporary
     if not patient:
         return
 
-    # Añadir email del paciente a CC si corresponde
+    # append patient email to sample CC emails
     if patient.getEmailReport():
         email = patient.getEmail()
         add_cc_email(instance, email)
 
-    # Compartir patient con el cliente del AR si la opción está activa
+    # share patient with sample's client users if necessary
     reg_key = "senaite.patient.share_patients"
     if api.get_registry_record(reg_key, default=False):
         client_uid = api.get_uid(instance.getClient())
         behavior = IClientShareableBehavior(patient)
+        # Note we get Raw clients because if current user is a Client, she/he
+        # does not have enough privileges to wake-up clients other than the one
+        # she/he belongs to. Still, we need to keep the rest of shared clients
         client_uids = behavior.getRawClients() or []
         if client_uid not in client_uids:
             client_uids.append(client_uid)
@@ -73,52 +56,46 @@ def on_object_created(instance, event):
 
 @check_installed(None)
 def on_object_edited(instance, event):
-    """Se dispara al editar la muestra (AR)."""
-    if not _is_ar(instance):
-        return
+    """Event handler when a sample was edited
+    """
     update_patient(instance)
+    # update results ranges so dynamic specs are recalculated
     update_results_ranges(instance)
 
 
 def add_cc_email(sample, email):
-    """Añade un destinatario CC al AR si no existe ya."""
+    """add CC email recipient to sample
+    """
+    # get existing CC emails
     emails = sample.getCCEmails().split(",")
+    # nothing to do
     if email in emails:
         return
     emails.append(email)
+    # remove whitespaces
     emails = map(lambda e: e.strip(), emails)
     sample.setCCEmails(",".join(emails))
 
 
 def update_patient(instance):
-    """Crea/actualiza el Patient y asegura el enlace en el AR."""
-    if not _is_ar(instance):
-        return None
-
-    is_temp_fn = _getattr_callable(instance, "isMedicalRecordTemporary")
-    if is_temp_fn and is_temp_fn():
-        return None
-
-    get_mrn_val = _getattr_callable(instance, "getMedicalRecordNumberValue")
-    mrn = get_mrn_val() if get_mrn_val else None
-    mrn = _normalize_mrn(mrn)  # 🔹 normalización segura
-
-    if not mrn:
-        return None
-
-    # Buscar Patient por MRN
+    if instance.isMedicalRecordTemporary():
+        return
+    mrn = instance.getMedicalRecordNumberValue()
+    # Allow empty value when patients are not required for samples
+    if mrn is None:
+        return
     patient = patient_api.get_patient_by_mrn(mrn, include_inactive=True)
-
-    # Crear Patient si no existe
+    # Create a new patient
     if patient is None:
         if patient_api.is_patient_allowed_in_client():
+            # create the patient in the client
             container = instance.getClient()
         else:
+            # create the patient in the global patients folder
             container = patient_api.get_patient_folder()
 
+        # check if the user is allowed to add a new patient
         if not patient_api.is_patient_creation_allowed(container):
-            logger.warn("Patient creation not allowed in '{}' for MRN '{}'"
-                        .format(api.get_path(container), mrn))
             return None
 
         logger.info("Creating new Patient in '{}' with MRN: '{}'"
@@ -130,95 +107,30 @@ def update_patient(instance):
         except ValueError as exc:
             logger.error("%s" % exc)
             logger.error("Failed to create patient for values: %r" % values)
-            raise
-
-    # ── Enlazar el AR con el Patient si aún no está enlazado ─────────────────
-    set_mrn_ref = _getattr_callable(instance, "setMedicalRecordNumber")
-    get_mrn_ref = _getattr_callable(instance, "getMedicalRecordNumber")
-    needs_link = True
-
-    try:
-        current = get_mrn_ref() if get_mrn_ref else None
-        if current:
-            if isinstance(current, (list, tuple)):
-                current = current[0] if current else None
-            needs_link = api.get_uid(current) != api.get_uid(patient)
-    except Exception:
-        needs_link = True
-
-    if set_mrn_ref and needs_link:
-        try:
-            set_mrn_ref(patient)
-        except Exception as exc:
-            logger.warn("Could not set MedicalRecordNumber reference: %s" % exc)
-
-    # Opcional: actualizar el valor texto del MRN
-    set_mrn_val = _getattr_callable(instance, "setMedicalRecordNumberValue")
-    if set_mrn_val:
-        try:
-            pat_mrn = getattr(patient, "getMRN", None)
-            pat_mrn = pat_mrn() if callable(pat_mrn) else getattr(patient, "mrn", mrn)
-            set_mrn_val(pat_mrn or mrn)
-        except Exception:
-            pass
-
-    # Reindexar
-    try:
-        instance.reindexObject()
-    except Exception:
-        try:
-            api.reindex(instance)
-        except Exception:
-            logger.warn("Reindex after patient link skipped for {}".format(api.get_path(instance)))
-
+            raise exc
     return patient
 
 
 def get_patient_fields(instance):
-    """Extrae los campos de paciente desde el AR para crear/actualizar Patient."""
-    get_mrn_val = _getattr_callable(instance, "getMedicalRecordNumberValue")
-    mrn = get_mrn_val() if get_mrn_val else None
-    mrn = _normalize_mrn(mrn)  # 🔹 siempre limpio
-
-    sex = instance.getField("Sex").get(instance) if instance.getField("Sex") else None
-    gender = instance.getField("Gender").get(instance) if instance.getField("Gender") else None
-
+    """Extract the patient fields from the sample
+    """
+    mrn = instance.getMedicalRecordNumberValue()
+    sex = instance.getField("Sex").get(instance)
+    gender = instance.getField("Gender").get(instance)
     dob_field = instance.getField("DateOfBirth")
-    if dob_field:
-        birthdate = dob_field.get_date_of_birth(instance)
-        estimated = dob_field.get_estimated(instance)
-    else:
-        birthdate = None
-        estimated = False
-
-    address_field = instance.getField("PatientAddress")
-    address = address_field.get(instance) if address_field else None
-
-    name_field = instance.getField("PatientFullName")
-    if name_field:
-        firstname = name_field.get_firstname(instance)
-        middlename = name_field.get_middlename(instance)
-        lastname = name_field.get_lastname(instance)
-        maternal_lastname = ""
-        get_maternal = getattr(name_field, "get_maternal_lastname", None)
-        if callable(get_maternal):
-            maternal_lastname = get_maternal(instance)
-    else:
-        firstname = middlename = lastname = maternal_lastname = u""
+    birthdate = dob_field.get_date_of_birth(instance)
+    estimated = dob_field.get_estimated(instance)
+    address = instance.getField("PatientAddress").get(instance)
+    field = instance.getField("PatientFullName")
+    firstname = field.get_firstname(instance)
+    middlename = field.get_middlename(instance)
+    lastname = field.get_lastname(instance)
 
     if address:
         address = {
             "type": "physical",
             "address": api.safe_unicode(address),
         }
-
-    # 🔹 nombre completo estandarizado
-    fullname = _extract_fullname({
-        "firstname": firstname,
-        "middlename": middlename,
-        "lastname": lastname,
-        "maternal_lastname": maternal_lastname,
-    })
 
     return {
         "mrn": mrn,
@@ -230,13 +142,15 @@ def get_patient_fields(instance):
         "firstname": api.safe_unicode(firstname),
         "middlename": api.safe_unicode(middlename),
         "lastname": api.safe_unicode(lastname),
-        "maternal_lastname": api.safe_unicode(maternal_lastname),
-        "fullname": api.safe_unicode(fullname),
     }
 
 
 def update_results_ranges(sample):
-    """Recalcula rangos de resultados después de cambiar datos del paciente."""
+    """Re-assigns the values of the results ranges for analyses, so dynamic
+    specifications are re-calculated when patient values such as sex and date
+    of birth are updated
+    """
+    # reset the result ranges so dynamic specs are grabbed again
     spec = sample.getSpecification()
     if spec:
         ranges = spec.getResultsRange()
