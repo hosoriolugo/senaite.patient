@@ -12,8 +12,8 @@
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License along with
-# this program; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+# this program; if not, write to the Free Software Foundation, Inc., 51
+# Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 # Copyright 2020-2025 by it's authors.
 # Some rights reserved, see README and LICENSE.
@@ -34,83 +34,158 @@ from zope.component import getMultiAdapter
 from zope.interface import implements
 
 
-# Columna adicional para MRN
+# Statuses to add. List of dicts
+ADD_STATUSES = [{
+    "id": "temp_mrn",
+    "title": _("Temporary MRN"),
+    "contentFilter": {
+        "is_temporary_mrn": True,
+        "sort_on": "created",
+        "sort_order": "descending",
+    },
+    "before": "to_be_verified",
+    "transitions": [],
+    "custom_transitions": [],
+},
+]
+
+# Columns to add
 ADD_COLUMNS = [
-    {
-        "id": "MRN",
-        "title": _("MRN"),
-        "index": "patient_mrn",
-        "sortable": True,
-    },
-    {
-        "id": "Patient",
+    ("Patient", {
         "title": _("Patient"),
-        "index": "patient_fullname",
-        "sortable": True,
-    },
+        "sortable": False,
+        "after": "getId",
+    }),
+    ("MRN", {
+        "title": _("MRN"),
+        "sortable": False,
+        "index": "medical_record_number",
+        "after": "getId",
+    }),
 ]
 
 
 class SamplesListingAdapter(object):
-    """Adapter para inyectar MRN y nombre de paciente real en el listado de muestras
+    """Adapter para mostrar MRN y Paciente en listados de muestras
+       Forma nativa: siempre lee desde el Paciente vinculado.
     """
-
-    implements(IListingViewAdapter)
     adapts(IListingView)
+    implements(IListingViewAdapter)
 
-    def __init__(self, context):
-        self.context = context
-        self.request = context.request
-        self.view = context
+    # Priority order of this adapter over others
+    priority_order = 99999
 
-    @viewcache
-    def is_installed(self):
-        return check_installed()
-
-    @viewcache
-    def is_samples_view(self):
-        return self.view.view_name in ("samples", "ajax_samples")
-
+    @property
     @memoize
-    def update_listing(self, listing):
-        if not self.is_installed():
-            return
-        if not self.is_samples_view():
-            return
+    def senaite_theme(self):
+        return getMultiAdapter(
+            (self.context, self.listing.request),
+            name="senaite_theme")
 
-        # Agregar columnas MRN y Paciente
-        for col in ADD_COLUMNS:
-            add_column(listing, col)
+    def icon_tag(self, name, **kwargs):
+        return self.senaite_theme.icon_tag(name, **kwargs)
 
-    def before_render(self, listing):
-        if not self.is_installed():
-            return
-        if not self.is_samples_view():
-            return
-        # nada adicional por ahora
-
-    def folder_item(self, obj, item, index):
-        """Aquí resolvemos MRN y Paciente reales desde el objeto Patient vinculado
+    @property
+    @memoize
+    def show_icon_temp_mrn(self):
+        """Returns whether an alert icon has to be displayed next to the sample
+        id when the Patient assigned to the sample has a temporary Medical
+        Record Number (MRN)
         """
-        if not self.is_installed() or not self.is_samples_view():
-            return item
+        return api.get_registry_record("senaite.patient.show_icon_temp_mrn")
 
-        patient = get_patient(obj)
+    @check_installed(None)
+    def folder_item(self, obj, item, index):
+        """Pinta MRN y nombre desde el Paciente vinculado.
+        Valida consistencia entre muestra y paciente.
+        """
+        # 1. Icono de MRN temporal
+        if self.show_icon_temp_mrn and getattr(obj, "isMedicalRecordTemporary", False):
+            after_icons = item["after"].get("getId", "")
+            kwargs = {"width": 16, "title": _("Temporary MRN")}
+            after_icons += self.icon_tag("id-card-red", **kwargs)
+            item["after"].update({"getId": after_icons})
 
-        if patient:
-            try:
-                item["MRN"] = patient.getMRN()
-            except Exception:
-                item["MRN"] = ""
+        # 2. Intentar obtener el paciente relacionado
+        patient = getattr(obj, "getPatient", lambda: None)()
+        if not patient:
+            # fallback por MRN en el sample
+            sample_mrn = getattr(obj, "getMedicalRecordNumberValue", lambda: "")()
+            if sample_mrn:
+                patient = get_patient_by_mrn(sample_mrn)
 
-            try:
-                # enlace clickeable al paciente
-                fullname = patient.getFullname()
-                item["Patient"] = get_link(patient, value=fullname)
-            except Exception:
-                item["Patient"] = ""
-        else:
+        if not patient:
             item["MRN"] = ""
             item["Patient"] = ""
+            return
 
-        return item
+        # 3. Obtener datos directamente desde el catálogo del paciente
+        catalog = api.get_tool("portal_catalog")
+        brains = catalog(UID=api.get_uid(patient))
+        if brains:
+            brain = brains[0]
+            patient_mrn = getattr(brain, "patient_mrn", "")
+            patient_fullname = getattr(brain, "patient_fullname", "")
+        else:
+            # fallback a métodos del objeto
+            patient_mrn = getattr(patient, "getMRN", lambda: "")()
+            patient_fullname = getattr(patient, "getFullname", lambda: "")()
+
+        # 4. Mostrar en columnas con link al paciente
+        item["MRN"] = patient_mrn
+        patient_url = "{}/@@view".format(api.get_url(patient))
+        item["Patient"] = get_link(patient_url, patient_fullname)
+
+        # 5. Validaciones de consistencia
+        sample_mrn = getattr(obj, "getMedicalRecordNumberValue", lambda: "")()
+        sample_name = getattr(obj, "getPatientFullName", lambda: "")()
+
+        if sample_mrn and sample_mrn != patient_mrn:
+            msg = _("Sample MRN does not match patient MRN: %s")
+            val = api.safe_unicode(patient_mrn) or _("<no value>")
+            icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
+            item["after"]["MRN"] = self.icon_tag("info", **icon_args)
+
+        if sample_name and sample_name != patient_fullname:
+            msg = _("Sample patient name does not match: %s")
+            val = api.safe_unicode(patient_fullname) or _("<no value>")
+            icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
+            item["after"]["Patient"] = self.icon_tag("info", **icon_args)
+
+    @viewcache
+    def get_patient_by_mrn(self, mrn):
+        if not mrn:
+            return None
+        if self.is_patient_context():
+            return self.context
+        return get_patient_by_mrn(mrn)
+
+    @check_installed(None)
+    def before_render(self):
+        # Additional columns
+        rv_keys = map(lambda r: r["id"], self.listing.review_states)
+        for column_id, column_values in ADD_COLUMNS:
+            if column_id == "MRN" and self.is_patient_context():
+                continue
+            add_column(
+                listing=self.listing,
+                column_id=column_id,
+                column_values=column_values,
+                after=column_values.get("after", None),
+                review_states=rv_keys)
+
+        # Add review_states
+        for status in ADD_STATUSES:
+            sid = status.get("id")
+            if sid == "temp_mrn" and self.is_patient_context():
+                continue
+            after = status.get("after", None)
+            before = status.get("before", None)
+            if not status.get("columns"):
+                status.update({"columns": self.listing.columns.keys()})
+            add_review_state(self.listing, status, after=after, before=before)
+
+    def is_patient_context(self):
+        """Check if the current context is a patient
+        """
+        return api.get_portal_type(self.context) == "Patient"
