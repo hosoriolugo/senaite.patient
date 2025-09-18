@@ -8,8 +8,8 @@
 #
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU General Public License for more details.
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License along with
 # this program; if not, write to the Free Software Foundation, Inc.,
@@ -45,9 +45,6 @@ def on_object_created(instance, event):
     if api.get_registry_record(reg_key, default=False):
         client_uid = api.get_uid(instance.getClient())
         behavior = IClientShareableBehavior(patient)
-        # Note we get Raw clients because if current user is a Client, she/he
-        # does not have enough privileges to wake-up clients other than the one
-        # she/he belongs to. Still, we need to keep the rest of shared clients
         client_uids = behavior.getRawClients() or []
         if client_uid not in client_uids:
             client_uids.append(client_uid)
@@ -66,13 +63,10 @@ def on_object_edited(instance, event):
 def add_cc_email(sample, email):
     """add CC email recipient to sample
     """
-    # get existing CC emails
     emails = sample.getCCEmails().split(",")
-    # nothing to do
     if email in emails:
         return
     emails.append(email)
-    # remove whitespaces
     emails = map(lambda e: e.strip(), emails)
     sample.setCCEmails(",".join(emails))
 
@@ -80,45 +74,35 @@ def add_cc_email(sample, email):
 def update_patient(instance):
     """Update or create Patient object for a given Analysis Request
     """
-    # 🔹 Seguridad: evitar que se ejecute sobre objetos que no son AnalysisRequest
+    # Seguridad: aseguramos que sea un AR válido
     if not hasattr(instance, "getMedicalRecordNumberValue"):
-        logger.debug(
-            "[senaite.patient] Ignorando update_patient: %r no parece un AnalysisRequest",
-            instance,
-        )
+        logger.debug("[senaite.patient] Ignorando update_patient: %r no parece un AnalysisRequest", instance)
         return None
 
     if not hasattr(instance, "isMedicalRecordTemporary"):
-        logger.debug(
-            "[senaite.patient] Objeto sin isMedicalRecordTemporary: %r", instance
-        )
+        logger.debug("[senaite.patient] Objeto sin isMedicalRecordTemporary: %r", instance)
         return None
 
     if instance.isMedicalRecordTemporary():
-        return
+        return None
 
     mrn = instance.getMedicalRecordNumberValue()
-    # Allow empty value when patients are not required for samples
     if mrn is None:
-        return
+        return None
 
     patient = patient_api.get_patient_by_mrn(mrn, include_inactive=True)
 
-    # Create a new patient if none found
+    # Crear paciente si no existe
     if patient is None:
         if patient_api.is_patient_allowed_in_client():
-            # create the patient in the client
             container = instance.getClient()
         else:
-            # create the patient in the global patients folder
             container = patient_api.get_patient_folder()
 
-        # check if the user is allowed to add a new patient
         if not patient_api.is_patient_creation_allowed(container):
             return None
 
-        logger.info("Creating new Patient in '{}' with MRN: '{}'".format(
-            api.get_path(container), mrn))
+        logger.info("Creating new Patient in '{}' with MRN: '{}'".format(api.get_path(container), mrn))
         values = get_patient_fields(instance)
         try:
             patient = api.create(container, "Patient")
@@ -128,31 +112,17 @@ def update_patient(instance):
             logger.error("Failed to create patient for values: %r" % values)
             raise exc
 
-    # 🔹 Reconstruir y actualizar PatientFullName en el AR
+    # 🔹 Vincular Paciente y MRN al AR y reindexar
     try:
-        field = instance.getField("PatientFullName")
-        firstname = field.get_firstname(instance) or u""
-        middlename = field.get_middlename(instance) or u""
-        lastname = field.get_lastname(instance) or u""
-        fullname = u"{} {} {}".format(firstname, middlename, lastname).strip()
-        if fullname:
-            instance.setPatientFullName(api.safe_unicode(fullname))
-    except Exception as e:
-        logger.warning(
-            "[senaite.patient] No se pudo actualizar PatientFullName en AR %r: %s",
-            instance, e
-        )
-
-    # 🔹 Reindexamos el AR para asegurar que MRN y Fullname quedan en catálogo
-    try:
+        instance.setPatient(patient)
+        instance.setMedicalRecordNumber(mrn)
         instance.reindexObject(idxs=[
             "getMedicalRecordNumberValue",
-            "getPatientFullName"
+            "getPatientUID",
+            "getPatientFullName",
         ])
     except Exception as e:
-        logger.warning(
-            "[senaite.patient] No se pudo reindexar AR %r: %s", instance, e
-        )
+        logger.warning("[senaite.patient] No se pudo persistir MRN/Paciente en %r: %s", instance, e)
 
     return patient
 
@@ -196,7 +166,6 @@ def update_results_ranges(sample):
     specifications are re-calculated when patient values such as sex and date
     of birth are updated
     """
-    # reset the result ranges so dynamic specs are grabbed again
     spec = sample.getSpecification()
     if spec:
         ranges = spec.getResultsRange()
