@@ -7,9 +7,9 @@
 # Software Foundation, version 2.
 #
 # This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-# or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-# more details.
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License along with
 # this program; if not, write to the Free Software Foundation, Inc.,
@@ -117,8 +117,8 @@ def update_patient(instance):
         if not patient_api.is_patient_creation_allowed(container):
             return None
 
-        logger.info("Creating new Patient in '{}' with MRN: '{}'"
-                    .format(api.get_path(container), mrn))
+        logger.info("Creating new Patient in '{}' with MRN: '{}'".format(
+            api.get_path(container), mrn))
         values = get_patient_fields(instance)
         try:
             patient = api.create(container, "Patient")
@@ -127,6 +127,18 @@ def update_patient(instance):
             logger.error("%s" % exc)
             logger.error("Failed to create patient for values: %r" % values)
             raise exc
+
+    # 🔹 Reindexamos el AR para asegurar que MRN y Fullname quedan en catálogo
+    try:
+        instance.reindexObject(idxs=[
+            "getMedicalRecordNumberValue",
+            "getPatientFullName"
+        ])
+    except Exception as e:
+        logger.warning(
+            "[senaite.patient] No se pudo reindexar AR %r: %s", instance, e
+        )
+
     return patient
 
 
