@@ -8,8 +8,8 @@
 #
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-# General Public License for more details.
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License along with
 # this program; if not, write to the Free Software Foundation, Inc.,
@@ -127,6 +127,21 @@ def update_patient(instance):
             logger.error("%s" % exc)
             logger.error("Failed to create patient for values: %r" % values)
             raise exc
+
+    # 🔹 Reconstruir y actualizar PatientFullName en el AR
+    try:
+        field = instance.getField("PatientFullName")
+        firstname = field.get_firstname(instance) or u""
+        middlename = field.get_middlename(instance) or u""
+        lastname = field.get_lastname(instance) or u""
+        fullname = u"{} {} {}".format(firstname, middlename, lastname).strip()
+        if fullname:
+            instance.setPatientFullName(api.safe_unicode(fullname))
+    except Exception as e:
+        logger.warning(
+            "[senaite.patient] No se pudo actualizar PatientFullName en AR %r: %s",
+            instance, e
+        )
 
     # 🔹 Reindexamos el AR para asegurar que MRN y Fullname quedan en catálogo
     try:
