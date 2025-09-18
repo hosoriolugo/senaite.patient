@@ -6,10 +6,10 @@
 # under the terms of the GNU General Public License as published by the Free
 # Software Foundation, version 2.
 #
-# This program is distributed in the hope that it will be useful, but WITHOUT
-# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
-# details.
+# SENAITE.PATIENT is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License along with
 # this program; if not, write to the Free Software Foundation, Inc., 51
@@ -126,9 +126,9 @@ class SamplesListingAdapter(object):
         # --- Nombre del AR (defensivo) ---
         sample_patient_fullname = u""
         try:
-            sample_patient_fullname = api.to_utf8(
-                getattr(obj, "getPatientFullName", None),
-                default=u"")
+            getter = getattr(obj, "getFullname", None)
+            if callable(getter):
+                sample_patient_fullname = api.to_utf8(getter(), default=u"")
         except Exception:
             sample_patient_fullname = u""
 
