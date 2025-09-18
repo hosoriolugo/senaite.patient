@@ -7,9 +7,9 @@
 # Software Foundation, version 2.
 #
 # This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU General Public License for more details.
+# but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+# or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+# more details.
 #
 # You should have received a copy of the GNU General Public License along with
 # this program; if not, write to the Free Software Foundation, Inc.,
@@ -80,11 +80,17 @@ def add_cc_email(sample, email):
 def update_patient(instance):
     """Update or create Patient object for a given Analysis Request
     """
-    # 🔹 Seguridad: evitar que se ejecute sobre objetos que no son AR reales
+    # 🔹 Seguridad: evitar que se ejecute sobre objetos que no son AnalysisRequest
+    if not hasattr(instance, "getMedicalRecordNumberValue"):
+        logger.debug(
+            "[senaite.patient] Ignorando update_patient: %r no parece un AnalysisRequest",
+            instance,
+        )
+        return None
+
     if not hasattr(instance, "isMedicalRecordTemporary"):
         logger.debug(
-            "[senaite.patient] Ignorando evento: objeto %r no es un AnalysisRequest",
-            instance,
+            "[senaite.patient] Objeto sin isMedicalRecordTemporary: %r", instance
         )
         return None
 
