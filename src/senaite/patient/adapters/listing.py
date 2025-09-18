@@ -33,6 +33,7 @@ from zope.component import adapts
 from zope.component import getMultiAdapter
 from zope.interface import implements
 
+
 # Statuses to add. List of dicts
 ADD_STATUSES = [{
     "id": "temp_mrn",
@@ -98,77 +99,65 @@ class SamplesListingAdapter(object):
 
     @check_installed(None)
     def folder_item(self, obj, item, index):
-        """Inject MRN and Patient columns into Sample listings
+        """Inject MRN and Patient columns into Sample listings.
+        Now resolves always from the linked Patient (native behavior).
         """
-        if self.show_icon_temp_mrn and callable(getattr(obj, "isMedicalRecordTemporary", None)):
-            if obj.isMedicalRecordTemporary():
-                # Add an icon after the sample ID
-                after_icons = item["after"].get("getId", "")
-                kwargs = {"width": 16, "title": _("Temporary MRN")}
-                after_icons += self.icon_tag("id-card-red", **kwargs)
-                item["after"].update({"getId": after_icons})
+        if (self.show_icon_temp_mrn and
+                callable(getattr(obj, "isMedicalRecordTemporary", None)) and
+                obj.isMedicalRecordTemporary()):
+            # Add an icon after the sample ID
+            after_icons = item["after"].get("getId", "")
+            kwargs = {"width": 16, "title": _("Temporary MRN")}
+            after_icons += self.icon_tag("id-card-red", **kwargs)
+            item["after"].update({"getId": after_icons})
 
-        # Fetch MRN and Patient fullname safely
+        # Try to resolve the linked patient object
+        patient = None
         try:
-            sample_patient_mrn = api.to_utf8(
-                obj.getMedicalRecordNumberValue(), default=""
-            )
+            # Preferred: Sample.getPatient()
+            if hasattr(obj, "getPatient"):
+                patient = obj.getPatient()
         except Exception:
-            sample_patient_mrn = ""
+            patient = None
 
-        try:
-            sample_patient_fullname = api.to_utf8(
-                obj.getPatientFullName(), default=""
-            )
-        except Exception:
-            sample_patient_fullname = ""
-
-        item["MRN"] = sample_patient_mrn
-        item["Patient"] = sample_patient_fullname
-
-        # get the patient object
-        patient = self.get_patient_by_mrn(sample_patient_mrn)
+        # Fallback: search by MRN in catalog
         if not patient:
+            try:
+                sample_patient_mrn = obj.getMedicalRecordNumberValue()
+                if sample_patient_mrn:
+                    patient = get_patient_by_mrn(sample_patient_mrn)
+            except Exception:
+                patient = None
+
+        # If no patient found, leave empty
+        if not patient:
+            item["MRN"] = ""
+            item["Patient"] = ""
             return
 
-        # Link to patient object
-        patient_url = api.get_url(patient)
-        if sample_patient_mrn:
-            item.setdefault("replace", {})
-            item["replace"]["MRN"] = get_link(
-                patient_url, sample_patient_mrn)
-
-        # Compare patient info with stored values
+        # Extract MRN and Fullname from patient (always fresh)
         try:
-            patient_mrn = patient.getMRN()
+            patient_mrn = patient.getMRN() or ""
         except Exception:
             patient_mrn = ""
 
         try:
-            patient_fullname = patient.getFullname()
+            patient_fullname = patient.getFullname() or ""
         except Exception:
             patient_fullname = ""
 
-        # patient MRN is different
-        if sample_patient_mrn and patient_mrn and sample_patient_mrn != patient_mrn:
-            msg = _("Patient MRN of sample is not equal to %s")
-            val = api.safe_unicode(patient_mrn) or _("<no value>")
-            icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
-            item.setdefault("after", {})
-            item["after"]["MRN"] = self.icon_tag("info", **icon_args)
+        # Set values in listing
+        item["MRN"] = patient_mrn
+        item["Patient"] = patient_fullname
 
-        if sample_patient_fullname and patient_fullname and sample_patient_fullname != patient_fullname:
-            msg = _("Patient fullname of sample is not equal to %s")
-            val = api.safe_unicode(patient_fullname) or _("<no value>")
-            icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
-            item.setdefault("after", {})
-            item["after"]["Patient"] = self.icon_tag("info", **icon_args)
-        else:
-            if patient_fullname:
-                patient_view_url = "{}/@@view".format(patient_url)
-                patient_view_url = get_link(
-                    patient_view_url, patient_fullname)
-                item["Patient"] = patient_view_url
+        # Link to patient object if available
+        patient_url = api.get_url(patient)
+        if patient_mrn:
+            item.setdefault("replace", {})
+            item["replace"]["MRN"] = get_link(patient_url, patient_mrn)
+        if patient_fullname:
+            patient_view_url = "{}/@@view".format(patient_url)
+            item["Patient"] = get_link(patient_view_url, patient_fullname)
 
     @viewcache
     def get_patient_by_mrn(self, mrn):
