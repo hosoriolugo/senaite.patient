@@ -6,10 +6,10 @@
 # under the terms of the GNU General Public License as published by the Free
 # Software Foundation, version 2.
 #
-# This program is distributed in the hope that it will be useful, but WITHOUT
-# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
-# details.
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License along with
 # this program; if not, write to the Free Software Foundation, Inc., 51
@@ -105,17 +105,33 @@ class SamplesListingAdapter(object):
             after_icons += self.icon_tag("id-card-red", **kwargs)
             item["after"].update({"getId": after_icons})
 
+        # MRN del paciente (ya funciona bien)
         sample_patient_mrn = api.to_utf8(
             obj.getMedicalRecordNumberValue, default="")
 
-        sample_patient_fullname = api.to_utf8(
-            obj.getPatientFullName, default="")
+        # Fullname: corregimos para usar siempre el objeto Patient si existe
+        sample_patient_fullname = u""
+        patient = None
+        try:
+            patient = obj.getPatient()
+        except Exception:
+            patient = None
+
+        if patient:
+            # Nombre completo real concatenado (4 campos)
+            sample_patient_fullname = api.to_utf8(
+                patient.getFullname(), default=u"")
+        else:
+            # fallback a lo guardado en el AR
+            sample_patient_fullname = api.to_utf8(
+                obj.getPatientFullName, default="")
 
         item["MRN"] = sample_patient_mrn
         item["Patient"] = sample_patient_fullname
 
-        # get the patient object
-        patient = self.get_patient_by_mrn(sample_patient_mrn)
+        # get the patient object (si no lo habíamos resuelto antes)
+        if not patient:
+            patient = self.get_patient_by_mrn(sample_patient_mrn)
 
         if not patient:
             return
@@ -129,7 +145,7 @@ class SamplesListingAdapter(object):
         patient_mrn = patient.getMRN()
         patient_fullname = patient.getFullname()
 
-        # patient MRN is different
+        # Comparaciones
         if sample_patient_mrn != patient_mrn:
             msg = _("Patient MRN of sample is not equal to %s")
             val = api.safe_unicode(patient_mrn) or _("<no value>")
@@ -144,7 +160,7 @@ class SamplesListingAdapter(object):
         else:
             patient_view_url = "{}/@@view".format(patient_url)
             patient_view_url = get_link(
-                    patient_view_url, sample_patient_fullname)
+                patient_view_url, sample_patient_fullname)
             item["Patient"] = patient_view_url
 
     @viewcache
