@@ -98,56 +98,77 @@ class SamplesListingAdapter(object):
 
     @check_installed(None)
     def folder_item(self, obj, item, index):
-        # ⚠️ Aquí había un bug: faltaban los paréntesis
-        if self.show_icon_temp_mrn and obj.isMedicalRecordTemporary():
-            # Add an icon after the sample ID
-            after_icons = item["after"].get("getId", "")
-            kwargs = {"width": 16, "title": _("Temporary MRN")}
-            after_icons += self.icon_tag("id-card-red", **kwargs)
-            item["after"].update({"getId": after_icons})
+        """Inject MRN and Patient columns into Sample listings
+        """
+        if self.show_icon_temp_mrn and callable(getattr(obj, "isMedicalRecordTemporary", None)):
+            if obj.isMedicalRecordTemporary():
+                # Add an icon after the sample ID
+                after_icons = item["after"].get("getId", "")
+                kwargs = {"width": 16, "title": _("Temporary MRN")}
+                after_icons += self.icon_tag("id-card-red", **kwargs)
+                item["after"].update({"getId": after_icons})
 
-        # ⚠️ Aquí también: se pasaba la función, no el valor
-        sample_patient_mrn = api.to_utf8(
-            obj.getMedicalRecordNumberValue(), default="")
+        # Fetch MRN and Patient fullname safely
+        try:
+            sample_patient_mrn = api.to_utf8(
+                obj.getMedicalRecordNumberValue(), default=""
+            )
+        except Exception:
+            sample_patient_mrn = ""
 
-        sample_patient_fullname = api.to_utf8(
-            obj.getPatientFullName(), default="")
+        try:
+            sample_patient_fullname = api.to_utf8(
+                obj.getPatientFullName(), default=""
+            )
+        except Exception:
+            sample_patient_fullname = ""
 
         item["MRN"] = sample_patient_mrn
         item["Patient"] = sample_patient_fullname
 
         # get the patient object
         patient = self.get_patient_by_mrn(sample_patient_mrn)
-
         if not patient:
             return
 
         # Link to patient object
         patient_url = api.get_url(patient)
         if sample_patient_mrn:
+            item.setdefault("replace", {})
             item["replace"]["MRN"] = get_link(
                 patient_url, sample_patient_mrn)
 
-        patient_mrn = patient.getMRN()
-        patient_fullname = patient.getFullname()
+        # Compare patient info with stored values
+        try:
+            patient_mrn = patient.getMRN()
+        except Exception:
+            patient_mrn = ""
+
+        try:
+            patient_fullname = patient.getFullname()
+        except Exception:
+            patient_fullname = ""
 
         # patient MRN is different
-        if sample_patient_mrn != patient_mrn:
+        if sample_patient_mrn and patient_mrn and sample_patient_mrn != patient_mrn:
             msg = _("Patient MRN of sample is not equal to %s")
             val = api.safe_unicode(patient_mrn) or _("<no value>")
             icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
+            item.setdefault("after", {})
             item["after"]["MRN"] = self.icon_tag("info", **icon_args)
 
-        if sample_patient_fullname != patient_fullname:
+        if sample_patient_fullname and patient_fullname and sample_patient_fullname != patient_fullname:
             msg = _("Patient fullname of sample is not equal to %s")
             val = api.safe_unicode(patient_fullname) or _("<no value>")
             icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
+            item.setdefault("after", {})
             item["after"]["Patient"] = self.icon_tag("info", **icon_args)
         else:
-            patient_view_url = "{}/@@view".format(patient_url)
-            patient_view_url = get_link(
-                    patient_view_url, sample_patient_fullname)
-            item["Patient"] = patient_view_url
+            if patient_fullname:
+                patient_view_url = "{}/@@view".format(patient_url)
+                patient_view_url = get_link(
+                    patient_view_url, patient_fullname)
+                item["Patient"] = patient_view_url
 
     @viewcache
     def get_patient_by_mrn(self, mrn):
