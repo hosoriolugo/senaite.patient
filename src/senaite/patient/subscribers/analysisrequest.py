@@ -6,14 +6,14 @@
 # under the terms of the GNU General Public License as published by the Free
 # Software Foundation, version 2.
 #
-# This program is distributed in the hope that it will be useful, but WITHOUT
-# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
-# details.
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License along with
-# this program; if not, write to the Free Software Foundation, Inc., 51
-# Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+# this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 # Copyright 2020-2025 by it's authors.
 # Some rights reserved, see README and LICENSE.
@@ -78,14 +78,27 @@ def add_cc_email(sample, email):
 
 
 def update_patient(instance):
+    """Update or create Patient object for a given Analysis Request
+    """
+    # 🔹 Seguridad: evitar que se ejecute sobre objetos que no son AR reales
+    if not hasattr(instance, "isMedicalRecordTemporary"):
+        logger.debug(
+            "[senaite.patient] Ignorando evento: objeto %r no es un AnalysisRequest",
+            instance,
+        )
+        return None
+
     if instance.isMedicalRecordTemporary():
         return
+
     mrn = instance.getMedicalRecordNumberValue()
     # Allow empty value when patients are not required for samples
     if mrn is None:
         return
+
     patient = patient_api.get_patient_by_mrn(mrn, include_inactive=True)
-    # Create a new patient
+
+    # Create a new patient if none found
     if patient is None:
         if patient_api.is_patient_allowed_in_client():
             # create the patient in the client
