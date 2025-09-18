@@ -368,35 +368,3 @@ def is_mrn_unique(mrn):
     }
     brains = api.search(query, PATIENT_CATALOG)
     return len(brains) == 0
-
-
-# -------------------------------------------------------------------
-# EXTRA HELPERS: soporte para MRN normalizado y nombre con 4 campos
-# -------------------------------------------------------------------
-
-def _normalize_mrn(value):
-    """Normaliza un valor de MRN cualquiera a texto limpio"""
-    if not value:
-        return u""
-    if isinstance(value, dict):
-        for key in ("mrn", "MRN", "value", "text", "label", "title"):
-            v = value.get(key)
-            if isinstance(v, (str, unicode)) and v.strip():
-                return api.safe_unicode(v.strip())
-        return u""
-    return api.safe_unicode(unicode(value).strip())
-
-
-def _extract_fullname(patient):
-    """Construye el nombre completo de un paciente (4 campos)."""
-    try:
-        parts = [
-            getattr(patient, "getFirstname", lambda: u"")(),
-            getattr(patient, "getMiddlename", lambda: u"")(),
-            getattr(patient, "getPaternalLastname", lambda: u"")(),
-            getattr(patient, "getMaternalLastname", lambda: u"")(),
-        ]
-        text = u" ".join([p for p in parts if p])
-        return u" ".join(text.split())
-    except Exception:
-        return u""
