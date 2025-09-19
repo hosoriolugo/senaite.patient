@@ -32,7 +32,7 @@ from senaite.patient.api import get_patient_by_mrn
 from zope.component import adapts
 from zope.component import getMultiAdapter
 from zope.interface import implements
-from Missing import Missing
+from Missing import Value as MissingValue
 
 # Statuses to add. List of dicts
 ADD_STATUSES = [{
@@ -67,7 +67,7 @@ ADD_COLUMNS = [
 
 def safe_text(val):
     """Normaliza valores para evitar APIError con Missing/None"""
-    if val in (None, Missing.Value):
+    if val is None or val is MissingValue:
         return u""
     try:
         return api.safe_unicode(val)
@@ -109,32 +109,34 @@ class SamplesListingAdapter(object):
 
     @check_installed(None)
     def folder_item(self, obj, item, index):
-        if self.show_icon_temp_mrn and obj.isMedicalRecordTemporary:
+        """Customize the row data for each sample in the listing"""
+        if self.show_icon_temp_mrn and obj.isMedicalRecordTemporary():
             # Add an icon after the sample ID
             after_icons = item["after"].get("getId", "")
             kwargs = {"width": 16, "title": _("Temporary MRN")}
             after_icons += self.icon_tag("id-card-red", **kwargs)
             item["after"].update({"getId": after_icons})
 
-        # 🔹 Normalizamos aquí
-        sample_patient_mrn = safe_text(getattr(obj, "getMedicalRecordNumberValue", None))
-        sample_patient_fullname = safe_text(getattr(obj, "getPatientFullName", None))
+        # 🔹 Extraemos valores del AR
+        sample_patient_mrn = safe_text(obj.getMedicalRecordNumberValue())
+        sample_patient_fullname = safe_text(obj.getPatientFullName())
 
         item["MRN"] = sample_patient_mrn
         item["Patient"] = sample_patient_fullname
 
-        # get the patient object
+        # Obtener el objeto paciente
         patient = self.get_patient_by_mrn(sample_patient_mrn)
         if not patient:
             return
 
-        # Link to patient object
+        # Link al paciente
         patient_url = api.get_url(patient)
         if sample_patient_mrn:
             item["replace"]["MRN"] = get_link(patient_url, sample_patient_mrn)
 
-        patient_mrn = safe_text(patient.getMRN())
-        patient_fullname = safe_text(patient.getFullname())
+        # 🔹 Validar consistencia con el Paciente real
+        patient_mrn = safe_text(getattr(patient, "getMRN", lambda: None)())
+        patient_fullname = safe_text(getattr(patient, "getFullname", lambda: None)())
 
         if sample_patient_mrn != patient_mrn:
             msg = _("Patient MRN of sample is not equal to %s")
@@ -148,6 +150,7 @@ class SamplesListingAdapter(object):
             icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
             item["after"]["Patient"] = self.icon_tag("info", **icon_args)
         else:
+            # Link al perfil del paciente
             patient_view_url = "{}/@@view".format(patient_url)
             patient_view_url = get_link(patient_view_url, sample_patient_fullname)
             item["Patient"] = patient_view_url
@@ -162,6 +165,7 @@ class SamplesListingAdapter(object):
 
     @check_installed(None)
     def before_render(self):
+        """Inject additional columns and states in the listing"""
         # Additional columns
         rv_keys = map(lambda r: r["id"], self.listing.review_states)
         for column_id, column_values in ADD_COLUMNS:
