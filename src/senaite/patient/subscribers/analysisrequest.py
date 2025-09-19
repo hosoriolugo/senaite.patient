@@ -23,6 +23,17 @@ from senaite.core.behaviors import IClientShareableBehavior
 from senaite.patient import api as patient_api
 from senaite.patient import check_installed
 from senaite.patient import logger
+from Missing import Missing
+
+
+def safe_text(val):
+    """Convierte Missing/None a '' y asegura unicode seguro"""
+    if val in (None, Missing.Value):
+        return u""
+    try:
+        return api.safe_unicode(val)
+    except Exception:
+        return u""
 
 
 @check_installed(None)
@@ -74,7 +85,6 @@ def add_cc_email(sample, email):
 def update_patient(instance):
     """Update or create Patient object for a given Analysis Request
     """
-    # Seguridad: aseguramos que sea un AR válido
     if not hasattr(instance, "getMedicalRecordNumberValue"):
         logger.debug("[senaite.patient] Ignorando update_patient: %r no parece un AnalysisRequest", instance)
         return None
@@ -86,8 +96,8 @@ def update_patient(instance):
     if instance.isMedicalRecordTemporary():
         return None
 
-    mrn = instance.getMedicalRecordNumberValue()
-    if mrn is None:
+    mrn = safe_text(instance.getMedicalRecordNumberValue())
+    if not mrn:
         return None
 
     patient = patient_api.get_patient_by_mrn(mrn, include_inactive=True)
@@ -129,39 +139,25 @@ def update_patient(instance):
 
 def get_patient_fields(instance):
     """Extract the patient fields from the sample
-    ⚠️ Ajustado para nunca devolver Missing.Value
     """
-    def safe(val):
-        """Convierte Missing/None a u"" siempre"""
-        if val in (None, api._marker):
-            return u""
-        try:
-            return api.safe_unicode(val)
-        except Exception:
-            return u""
-
-    mrn = safe(instance.getMedicalRecordNumberValue())
-
-    sex = safe(getattr(instance.getField("Sex").get(instance), "strip", lambda: "")())
-    gender = safe(getattr(instance.getField("Gender").get(instance), "strip", lambda: "")())
-
+    mrn = safe_text(instance.getMedicalRecordNumberValue())
+    sex = safe_text(instance.getField("Sex").get(instance))
+    gender = safe_text(instance.getField("Gender").get(instance))
     dob_field = instance.getField("DateOfBirth")
     birthdate = dob_field.get_date_of_birth(instance)
     estimated = dob_field.get_estimated(instance)
+    address = instance.getField("PatientAddress").get(instance)
+    field = instance.getField("PatientFullName")
 
-    address = safe(instance.getField("PatientAddress").get(instance))
+    firstname = safe_text(field.get_firstname(instance))
+    middlename = safe_text(field.get_middlename(instance))
+    lastname = safe_text(field.get_lastname(instance))
+
     if address:
         address = {
             "type": "physical",
-            "address": address,
+            "address": safe_text(address),
         }
-    else:
-        address = None
-
-    field = instance.getField("PatientFullName")
-    firstname = safe(field.get_firstname(instance))
-    middlename = safe(field.get_middlename(instance))
-    lastname = safe(field.get_lastname(instance))
 
     return {
         "mrn": mrn,
