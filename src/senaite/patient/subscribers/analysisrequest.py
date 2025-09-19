@@ -8,8 +8,8 @@
 #
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-# General Public License for more details.
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License along with
 # this program; if not, write to the Free Software Foundation, Inc.,
@@ -27,8 +27,7 @@ from senaite.patient import logger
 
 @check_installed(None)
 def on_object_created(instance, event):
-    """Event handler when a sample was created
-    """
+    """Event handler when a sample was created"""
     patient = update_patient(instance)
 
     # no patient created when the MRN is temporary
@@ -53,16 +52,14 @@ def on_object_created(instance, event):
 
 @check_installed(None)
 def on_object_edited(instance, event):
-    """Event handler when a sample was edited
-    """
+    """Event handler when a sample was edited"""
     update_patient(instance)
     # update results ranges so dynamic specs are recalculated
     update_results_ranges(instance)
 
 
 def add_cc_email(sample, email):
-    """add CC email recipient to sample
-    """
+    """add CC email recipient to sample"""
     emails = sample.getCCEmails().split(",")
     if email in emails:
         return
@@ -72,9 +69,7 @@ def add_cc_email(sample, email):
 
 
 def update_patient(instance):
-    """Update or create Patient object for a given Analysis Request
-    """
-    # Seguridad: aseguramos que sea un AR válido
+    """Update or create Patient object for a given Analysis Request"""
     if not hasattr(instance, "getMedicalRecordNumberValue"):
         logger.debug("[senaite.patient] Ignorando update_patient: %r no parece un AnalysisRequest", instance)
         return None
@@ -87,7 +82,7 @@ def update_patient(instance):
         return None
 
     mrn = instance.getMedicalRecordNumberValue()
-    if mrn is None:
+    if not mrn:
         return None
 
     patient = patient_api.get_patient_by_mrn(mrn, include_inactive=True)
@@ -112,10 +107,14 @@ def update_patient(instance):
             logger.error("Failed to create patient for values: %r" % values)
             raise exc
 
-    # 🔹 Vincular Paciente y MRN al AR y reindexar
+    # 🔹 Vincular Paciente, MRN y Nombre completo al AR y reindexar
     try:
         instance.setPatient(patient)
         instance.setMedicalRecordNumber(mrn)
+
+        fullname = patient.getFullname() or ""
+        instance.setPatientFullName(fullname)
+
         instance.reindexObject(idxs=[
             "getMedicalRecordNumberValue",
             "getPatientUID",
@@ -128,8 +127,7 @@ def update_patient(instance):
 
 
 def get_patient_fields(instance):
-    """Extract the patient fields from the sample
-    """
+    """Extract the patient fields from the sample"""
     mrn = instance.getMedicalRecordNumberValue()
     sex = instance.getField("Sex").get(instance)
     gender = instance.getField("Gender").get(instance)
@@ -164,8 +162,7 @@ def get_patient_fields(instance):
 def update_results_ranges(sample):
     """Re-assigns the values of the results ranges for analyses, so dynamic
     specifications are re-calculated when patient values such as sex and date
-    of birth are updated
-    """
+    of birth are updated"""
     spec = sample.getSpecification()
     if spec:
         ranges = spec.getResultsRange()
