@@ -12,8 +12,8 @@
 # General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License along with
-# this program; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+# this program; if not, write to the Free Software Foundation, Inc., 51
+# Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 # Copyright 2020-2025 by it's authors.
 # Some rights reserved, see README and LICENSE.
@@ -75,7 +75,9 @@ class SamplesListingAdapter(object):
     priority_order = 99999
 
     def __init__(self, listing, context):
-        """Init with listing + context (Plone requirement)"""
+        """IMPORTANT: debe aceptar los dos parámetros para que Plone
+        pueda instanciar el adaptador sin lanzar TypeError.
+        """
         self.listing = listing
         self.context = context
 
@@ -93,15 +95,18 @@ class SamplesListingAdapter(object):
     @memoize
     def show_icon_temp_mrn(self):
         """Returns whether an alert icon has to be displayed next to the sample
-        id when the Patient assigned to the sample has a temporary MRN
+        id when the Patient assigned to the sample has a temporary Medical
+        Record Number (MRN)
         """
         return api.get_registry_record("senaite.patient.show_icon_temp_mrn")
 
     @check_installed(None)
     def folder_item(self, obj, item, index):
-        """Inject MRN + Patient always from Patient object"""
-        patient = api.get_field_value(obj, "Patient")
-
+        """Inject MRN + Patient values into the listing row.
+        Always resolve directly from the linked Patient object.
+        """
+        # Get patient object from Sample/AnalysisRequest
+        patient = getattr(obj, "getPatient", lambda: None)()
         if not patient:
             item["MRN"] = ""
             item["Patient"] = ""
@@ -114,7 +119,7 @@ class SamplesListingAdapter(object):
         item["MRN"] = api.to_utf8(sample_patient_mrn)
         item["Patient"] = api.to_utf8(sample_patient_fullname)
 
-        # Add link to patient
+        # Add links
         patient_url = api.get_url(patient)
         if sample_patient_mrn:
             item["replace"]["MRN"] = get_link(patient_url, sample_patient_mrn)
@@ -134,9 +139,10 @@ class SamplesListingAdapter(object):
 
     @check_installed(None)
     def before_render(self):
-        """Inject extra columns and review states"""
+        # Additional columns
         rv_keys = map(lambda r: r["id"], self.listing.review_states)
         for column_id, column_values in ADD_COLUMNS:
+            # skip MRN column for patient context
             if column_id == "MRN" and self.is_patient_context():
                 continue
             add_column(
@@ -146,8 +152,10 @@ class SamplesListingAdapter(object):
                 after=column_values.get("after", None),
                 review_states=rv_keys)
 
+        # Add review_states
         for status in ADD_STATUSES:
             sid = status.get("id")
+            # skip temporary MRN for patient context
             if sid == "temp_mrn" and self.is_patient_context():
                 continue
             after = status.get("after", None)
