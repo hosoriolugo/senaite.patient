@@ -110,51 +110,56 @@ class SamplesListingAdapter(object):
     @check_installed(None)
     def folder_item(self, obj, item, index):
         """Customize the row data for each sample in the listing"""
-        # Asegurar estructuras internas del row
-        item.setdefault("after", {})
-        item.setdefault("replace", {})
-
-        if self.show_icon_temp_mrn and getattr(obj, "isMedicalRecordTemporary", lambda: False)():
+        if self.show_icon_temp_mrn and obj.isMedicalRecordTemporary():
             # Add an icon after the sample ID
             after_icons = item["after"].get("getId", "")
             kwargs = {"width": 16, "title": _("Temporary MRN")}
             after_icons += self.icon_tag("id-card-red", **kwargs)
             item["after"].update({"getId": after_icons})
 
-        # 🔹 Valores desde el AR (tolerantes a Missing/None)
+        # 1) Valores primarios desde el AR
         sample_patient_mrn = safe_text(getattr(obj, "getMedicalRecordNumberValue", lambda: u"")())
         sample_patient_fullname = safe_text(getattr(obj, "getPatientFullName", lambda: u"")())
 
-        # Setear columnas base
+        # 2) Fallback: si el AR está vacío, tomar del objeto Paciente vinculado
+        patient_obj = None
+        if not sample_patient_mrn or not sample_patient_fullname:
+            try:
+                patient_obj = getattr(obj, "getPatient", lambda: None)()
+            except Exception:
+                patient_obj = None
+            if patient_obj:
+                if not sample_patient_mrn:
+                    sample_patient_mrn = safe_text(getattr(patient_obj, "getMRN", lambda: u"")())
+                if not sample_patient_fullname:
+                    sample_patient_fullname = safe_text(getattr(patient_obj, "getFullname", lambda: u"")())
+
+        # Poner valores en la fila (aunque sean vacíos, no truena)
         item["MRN"] = sample_patient_mrn
         item["Patient"] = sample_patient_fullname
 
-        # Buscar Paciente real por MRN
-        patient = self.get_patient_by_mrn(sample_patient_mrn)
+        # 3) Link al paciente si lo tenemos (por objeto directo o por MRN)
+        patient = patient_obj or self.get_patient_by_mrn(sample_patient_mrn)
         if not patient:
             return
 
-        # Si el AR no trae nombre, usar el del Paciente
-        if not sample_patient_fullname and hasattr(patient, "getFullname"):
-            sample_patient_fullname = safe_text(patient.getFullname())
-            item["Patient"] = sample_patient_fullname
-
-        # Link al paciente
         patient_url = api.get_url(patient)
+
+        # MRN clickable
         if sample_patient_mrn:
             item["replace"]["MRN"] = get_link(patient_url, sample_patient_mrn)
 
-        # 🔹 Validar consistencia con el Paciente real
+        # 4) Validar consistencia con el Paciente real
         patient_mrn = safe_text(getattr(patient, "getMRN", lambda: None)())
         patient_fullname = safe_text(getattr(patient, "getFullname", lambda: None)())
 
-        if sample_patient_mrn != patient_mrn:
+        if sample_patient_mrn and sample_patient_mrn != patient_mrn:
             msg = _("Patient MRN of sample is not equal to %s")
             val = patient_mrn or _("<no value>")
             icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
             item["after"]["MRN"] = self.icon_tag("info", **icon_args)
 
-        if sample_patient_fullname != patient_fullname:
+        if sample_patient_fullname and sample_patient_fullname != patient_fullname:
             msg = _("Patient fullname of sample is not equal to %s")
             val = patient_fullname or _("<no value>")
             icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
@@ -162,8 +167,8 @@ class SamplesListingAdapter(object):
         else:
             # Link al perfil del paciente
             patient_view_url = "{}/@@view".format(patient_url)
-            patient_view_link = get_link(patient_view_url, sample_patient_fullname)
-            item["Patient"] = patient_view_link
+            patient_view_url = get_link(patient_view_url, sample_patient_fullname or patient_fullname)
+            item["Patient"] = patient_view_url
 
     @viewcache
     def get_patient_by_mrn(self, mrn):
