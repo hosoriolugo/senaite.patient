@@ -8,8 +8,8 @@
 #
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU General Public License for more details.
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License along with
 # this program; if not, write to the Free Software Foundation, Inc.,
@@ -27,7 +27,8 @@ from senaite.patient import logger
 
 @check_installed(None)
 def on_object_created(instance, event):
-    """Event handler when a sample was created"""
+    """Event handler when a sample was created
+    """
     patient = update_patient(instance)
 
     # no patient created when the MRN is temporary
@@ -52,14 +53,16 @@ def on_object_created(instance, event):
 
 @check_installed(None)
 def on_object_edited(instance, event):
-    """Event handler when a sample was edited"""
+    """Event handler when a sample was edited
+    """
     update_patient(instance)
     # update results ranges so dynamic specs are recalculated
     update_results_ranges(instance)
 
 
 def add_cc_email(sample, email):
-    """add CC email recipient to sample"""
+    """add CC email recipient to sample
+    """
     emails = sample.getCCEmails().split(",")
     if email in emails:
         return
@@ -69,7 +72,9 @@ def add_cc_email(sample, email):
 
 
 def update_patient(instance):
-    """Update or create Patient object for a given Analysis Request"""
+    """Update or create Patient object for a given Analysis Request
+    """
+    # Seguridad: aseguramos que sea un AR válido
     if not hasattr(instance, "getMedicalRecordNumberValue"):
         logger.debug("[senaite.patient] Ignorando update_patient: %r no parece un AnalysisRequest", instance)
         return None
@@ -82,7 +87,7 @@ def update_patient(instance):
         return None
 
     mrn = instance.getMedicalRecordNumberValue()
-    if not mrn:
+    if mrn is None:
         return None
 
     patient = patient_api.get_patient_by_mrn(mrn, include_inactive=True)
@@ -107,14 +112,10 @@ def update_patient(instance):
             logger.error("Failed to create patient for values: %r" % values)
             raise exc
 
-    # 🔹 Vincular Paciente, MRN y Nombre completo al AR y reindexar
+    # 🔹 Vincular Paciente y MRN al AR y reindexar
     try:
         instance.setPatient(patient)
         instance.setMedicalRecordNumber(mrn)
-
-        fullname = patient.getFullname() or ""
-        instance.setPatientFullName(fullname)
-
         instance.reindexObject(idxs=[
             "getMedicalRecordNumberValue",
             "getPatientUID",
@@ -127,24 +128,40 @@ def update_patient(instance):
 
 
 def get_patient_fields(instance):
-    """Extract the patient fields from the sample"""
-    mrn = instance.getMedicalRecordNumberValue()
-    sex = instance.getField("Sex").get(instance)
-    gender = instance.getField("Gender").get(instance)
+    """Extract the patient fields from the sample
+    ⚠️ Ajustado para nunca devolver Missing.Value
+    """
+    def safe(val):
+        """Convierte Missing/None a u"" siempre"""
+        if val in (None, api._marker):
+            return u""
+        try:
+            return api.safe_unicode(val)
+        except Exception:
+            return u""
+
+    mrn = safe(instance.getMedicalRecordNumberValue())
+
+    sex = safe(getattr(instance.getField("Sex").get(instance), "strip", lambda: "")())
+    gender = safe(getattr(instance.getField("Gender").get(instance), "strip", lambda: "")())
+
     dob_field = instance.getField("DateOfBirth")
     birthdate = dob_field.get_date_of_birth(instance)
     estimated = dob_field.get_estimated(instance)
-    address = instance.getField("PatientAddress").get(instance)
-    field = instance.getField("PatientFullName")
-    firstname = field.get_firstname(instance)
-    middlename = field.get_middlename(instance)
-    lastname = field.get_lastname(instance)
 
+    address = safe(instance.getField("PatientAddress").get(instance))
     if address:
         address = {
             "type": "physical",
-            "address": api.safe_unicode(address),
+            "address": address,
         }
+    else:
+        address = None
+
+    field = instance.getField("PatientFullName")
+    firstname = safe(field.get_firstname(instance))
+    middlename = safe(field.get_middlename(instance))
+    lastname = safe(field.get_lastname(instance))
 
     return {
         "mrn": mrn,
@@ -153,16 +170,17 @@ def get_patient_fields(instance):
         "birthdate": birthdate,
         "estimated_birthdate": estimated,
         "address": address,
-        "firstname": api.safe_unicode(firstname),
-        "middlename": api.safe_unicode(middlename),
-        "lastname": api.safe_unicode(lastname),
+        "firstname": firstname,
+        "middlename": middlename,
+        "lastname": lastname,
     }
 
 
 def update_results_ranges(sample):
     """Re-assigns the values of the results ranges for analyses, so dynamic
     specifications are re-calculated when patient values such as sex and date
-    of birth are updated"""
+    of birth are updated
+    """
     spec = sample.getSpecification()
     if spec:
         ranges = spec.getResultsRange()
