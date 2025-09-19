@@ -36,21 +36,9 @@ def safe_text(val):
         return u""
 
 
-def is_analysis_request(obj):
-    """True sólo para AnalysisRequest reales (evita RequestContainer del add form)"""
-    try:
-        return api.get_portal_type(obj) == "AnalysisRequest"
-    except Exception:
-        return False
-
-
 @check_installed(None)
 def on_object_created(instance, event):
     """Event handler when a sample was created"""
-    # Ignorar contenedores del add form u otros tipos
-    if not is_analysis_request(instance):
-        return
-
     patient = update_patient(instance)
 
     # no patient created when the MRN is temporary o si no aplica
@@ -71,7 +59,6 @@ def on_object_created(instance, event):
         try:
             client_uid = api.get_uid(instance.getClient())
             behavior = IClientShareableBehavior(patient)
-            # Raw clients para no despertar objetos sin permisos del usuario
             client_uids = behavior.getRawClients() or []
             if client_uid not in client_uids:
                 client_uids.append(client_uid)
@@ -83,10 +70,7 @@ def on_object_created(instance, event):
 @check_installed(None)
 def on_object_edited(instance, event):
     """Event handler when a sample was edited"""
-    if not is_analysis_request(instance):
-        return
     update_patient(instance)
-    # Recalcular specs dinámicas si cambió sexo/edad
     update_results_ranges(instance)
 
 
@@ -102,19 +86,15 @@ def add_cc_email(sample, email):
 
 def _get_mrn_from_ar_or_patient(instance):
     """Devuelve MRN priorizando el AR; si está vacío, cae al Paciente vinculado."""
-    # MRN desde el AR
     mrn = safe_text(getattr(instance, "getMedicalRecordNumberValue", lambda: u"")())
     if mrn:
         return mrn
-
-    # Si el AR no lo trae, mirar el Paciente ya asignado
     try:
         patient = getattr(instance, "getPatient", lambda: None)()
     except Exception:
         patient = None
     if patient:
         return safe_text(getattr(patient, "getMRN", lambda: u"")())
-
     return u""
 
 
@@ -150,11 +130,18 @@ def _bind_patient_and_mrn(instance, patient, mrn):
     try:
         if patient and hasattr(instance, "setPatient"):
             instance.setPatient(patient)
-        if mrn and hasattr(instance, "setMedicalRecordNumber"):
-            instance.setMedicalRecordNumber(mrn)
+
+        # Fijar MRN a través del field para evitar mutadores con nombre diferente
+        try:
+            fld = instance.getField("MedicalRecordNumber")
+            if fld and mrn:
+                fld.set(instance, mrn)
+        except Exception:
+            # fallback por si existe un mutador explícito
+            if mrn and hasattr(instance, "setMedicalRecordNumber"):
+                instance.setMedicalRecordNumber(mrn)
 
         # Reindex de índices/metadatos usados en catálogos y listados
-        # (tolerante a catálogos sin algunos índices)
         idxs = [
             "getPatientUID",
             "getPatientFullName",
@@ -164,34 +151,34 @@ def _bind_patient_and_mrn(instance, patient, mrn):
         try:
             instance.reindexObject(idxs=idxs)
         except TypeError:
-            # versiones que no aceptan idxs
             instance.reindexObject()
     except Exception as e:
         logger.warning("[senaite.patient] No se pudo persistir MRN/Paciente en %r: %s", instance, e)
 
 
 def update_patient(instance):
-    """Update or create Patient object for a given Analysis Request"""
-    # Validaciones mínimas de tipo y MRN temporal
-    if not is_analysis_request(instance):
+    """Update or create Patient object for a given Analysis Request.
+
+    Tolerante a objetos que no sean AR reales (p.ej. RequestContainer del add form).
+    """
+    # Si no parece un AR, salir sin romper
+    if not hasattr(instance, "getMedicalRecordNumberValue") or not hasattr(instance, "getField"):
         return None
+
     if hasattr(instance, "isMedicalRecordTemporary") and instance.isMedicalRecordTemporary():
         return None
 
-    # 1) Asegurar MRN: desde AR o desde Paciente si AR está vacío
+    # 1) Asegurar MRN (desde AR o desde Paciente si AR está vacío)
     mrn = _get_mrn_from_ar_or_patient(instance)
     if not mrn:
-        # Permitir vacío si MRN no es requerido; no tronar
+        # MRN vacío permitido -> nada que actualizar
         return None
 
     # 2) Obtener/crear Paciente
-    patient = None
     try:
-        # Si ya hay paciente asignado, úsalo
         patient = getattr(instance, "getPatient", lambda: None)()
     except Exception:
         patient = None
-
     if not patient:
         patient = _get_or_create_patient_by_mrn(instance, mrn)
 
@@ -253,5 +240,4 @@ def update_results_ranges(sample):
             ranges = spec.getResultsRange()
             sample.setResultsRange(ranges, recursive=False)
     except Exception:
-        # Nada crítico si no hay especificaciones
         pass
