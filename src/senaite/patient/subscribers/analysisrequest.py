@@ -23,12 +23,12 @@ from senaite.core.behaviors import IClientShareableBehavior
 from senaite.patient import api as patient_api
 from senaite.patient import check_installed
 from senaite.patient import logger
-from Missing import Missing
+from Missing import Value as MissingValue
 
 
 def safe_text(val):
     """Convierte Missing/None a '' y asegura unicode seguro"""
-    if val in (None, Missing.Value):
+    if val is None or val is MissingValue:
         return u""
     try:
         return api.safe_unicode(val)
@@ -152,6 +152,7 @@ def get_patient_fields(instance):
     firstname = safe_text(field.get_firstname(instance))
     middlename = safe_text(field.get_middlename(instance))
     lastname = safe_text(field.get_lastname(instance))
+    maternal_lastname = safe_text(field.get_maternal_lastname(instance))
 
     if address:
         address = {
@@ -169,6 +170,7 @@ def get_patient_fields(instance):
         "firstname": firstname,
         "middlename": middlename,
         "lastname": lastname,
+        "maternal_lastname": maternal_lastname,
     }
 
 
