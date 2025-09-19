@@ -12,8 +12,8 @@
 # General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License along with
-# this program; if not, write to the Free Software Foundation, Inc., 51
-# Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+# this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 # Copyright 2020-2025 by it's authors.
 # Some rights reserved, see README and LICENSE.
@@ -32,6 +32,7 @@ from senaite.patient.api import get_patient_by_mrn
 from zope.component import adapts
 from zope.component import getMultiAdapter
 from zope.interface import implements
+
 
 # Statuses to add. List of dicts
 ADD_STATUSES = [{
@@ -74,9 +75,7 @@ class SamplesListingAdapter(object):
     priority_order = 99999
 
     def __init__(self, listing, context):
-        """IMPORTANT: debe aceptar los dos parámetros para que Plone
-        pueda instanciar el adaptador sin lanzar TypeError.
-        """
+        """Init with listing + context (Plone requirement)"""
         self.listing = listing
         self.context = context
 
@@ -94,61 +93,36 @@ class SamplesListingAdapter(object):
     @memoize
     def show_icon_temp_mrn(self):
         """Returns whether an alert icon has to be displayed next to the sample
-        id when the Patient assigned to the sample has a temporary Medical
-        Record Number (MRN)
+        id when the Patient assigned to the sample has a temporary MRN
         """
         return api.get_registry_record("senaite.patient.show_icon_temp_mrn")
 
     @check_installed(None)
     def folder_item(self, obj, item, index):
-        if self.show_icon_temp_mrn and obj.isMedicalRecordTemporary:
-            # Add an icon after the sample ID
-            after_icons = item["after"].get("getId", "")
-            kwargs = {"width": 16, "title": _("Temporary MRN")}
-            after_icons += self.icon_tag("id-card-red", **kwargs)
-            item["after"].update({"getId": after_icons})
-
-        sample_patient_mrn = api.to_utf8(
-            obj.getMedicalRecordNumberValue, default="")
-
-        sample_patient_fullname = api.to_utf8(
-            obj.getPatientFullName, default="")
-
-        item["MRN"] = sample_patient_mrn
-        item["Patient"] = sample_patient_fullname
-
-        # get the patient object
-        patient = self.get_patient_by_mrn(sample_patient_mrn)
+        """Inject MRN + Patient always from Patient object"""
+        patient = api.get_field_value(obj, "Patient")
 
         if not patient:
-            return
+            item["MRN"] = ""
+            item["Patient"] = ""
+            return item
 
-        # Link to patient object
+        # Read MRN and Fullname safely from patient
+        sample_patient_mrn = getattr(patient, "getMedicalRecordNumberValue", lambda: "")()
+        sample_patient_fullname = getattr(patient, "getFullname", lambda: patient.Title())()
+
+        item["MRN"] = api.to_utf8(sample_patient_mrn)
+        item["Patient"] = api.to_utf8(sample_patient_fullname)
+
+        # Add link to patient
         patient_url = api.get_url(patient)
         if sample_patient_mrn:
-            item["replace"]["MRN"] = get_link(
-                patient_url, sample_patient_mrn)
-
-        patient_mrn = patient.getMRN()
-        patient_fullname = patient.getFullname()
-
-        # patient MRN is different
-        if sample_patient_mrn != patient_mrn:
-            msg = _("Patient MRN of sample is not equal to %s")
-            val = api.safe_unicode(patient_mrn) or _("<no value>")
-            icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
-            item["after"]["MRN"] = self.icon_tag("info", **icon_args)
-
-        if sample_patient_fullname != patient_fullname:
-            msg = _("Patient fullname of sample is not equal to %s")
-            val = api.safe_unicode(patient_fullname) or _("<no value>")
-            icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
-            item["after"]["Patient"] = self.icon_tag("info", **icon_args)
-        else:
+            item["replace"]["MRN"] = get_link(patient_url, sample_patient_mrn)
+        if sample_patient_fullname:
             patient_view_url = "{}/@@view".format(patient_url)
-            patient_view_url = get_link(
-                patient_view_url, sample_patient_fullname)
-            item["Patient"] = patient_view_url
+            item["Patient"] = get_link(patient_view_url, sample_patient_fullname)
+
+        return item
 
     @viewcache
     def get_patient_by_mrn(self, mrn):
@@ -160,10 +134,9 @@ class SamplesListingAdapter(object):
 
     @check_installed(None)
     def before_render(self):
-        # Additional columns
+        """Inject extra columns and review states"""
         rv_keys = map(lambda r: r["id"], self.listing.review_states)
         for column_id, column_values in ADD_COLUMNS:
-            # skip MRN column for patient context
             if column_id == "MRN" and self.is_patient_context():
                 continue
             add_column(
@@ -173,10 +146,8 @@ class SamplesListingAdapter(object):
                 after=column_values.get("after", None),
                 review_states=rv_keys)
 
-        # Add review_states
         for status in ADD_STATUSES:
             sid = status.get("id")
-            # skip temporary MRN for patient context
             if sid == "temp_mrn" and self.is_patient_context():
                 continue
             after = status.get("after", None)
