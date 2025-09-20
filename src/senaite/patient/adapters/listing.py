@@ -15,6 +15,7 @@
 # Adjusted: robust MRN/Patient resolution so listings never show empty values
 # ------------------------------------------------------------------------
 
+# -*- coding: utf-8 -*-
 from bika.lims import api
 from bika.lims.utils import get_link
 from plone.memoize.instance import memoize
@@ -34,7 +35,6 @@ except NameError:
 
 
 def _normalize_value(value):
-    """Ensure value is always a plain unicode string."""
     if isinstance(value, dict):
         for key in ("mrn", "MRN", "value", "text", "label", "title", "Title"):
             v = value.get(key)
@@ -48,12 +48,26 @@ def _normalize_value(value):
     return api.safe_unicode(str(value))
 
 
-# Statuses to add
+def _get_mrn_from_obj(obj):
+    """Lee MRN desde el campo 'MedicalRecordNumber' del AR."""
+    if not hasattr(obj, "getField"):
+        return u""
+    field = obj.getField("MedicalRecordNumber")
+    if not field:
+        return u""
+    try:
+        raw = field.get(obj)
+    except Exception:
+        return u""
+    return _normalize_value(raw)
+
+
+# Estado extra (opcional)
 ADD_STATUSES = [{
     "id": "temp_mrn",
     "title": _("Temporary MRN"),
     "contentFilter": {
-        "is_temporary_mrn": True,
+        "is_temporary_mrn": True,  # BooleanIndex del catálogo
         "sort_on": "created",
         "sort_order": "descending",
     },
@@ -62,7 +76,7 @@ ADD_STATUSES = [{
     "custom_transitions": [],
 }]
 
-# Columns to add
+# Columnas extra
 ADD_COLUMNS = [
     ("Patient", {
         "title": _("Patient"),
@@ -72,14 +86,18 @@ ADD_COLUMNS = [
     ("MRN", {
         "title": _("MRN"),
         "sortable": False,
-        "index": "getMedicalRecordNumberValue",
+        # IMPORTANTE:
+        # - Para búsquedas/filtrado del listing, apunta al índice de catálogo existente.
+        # - Tienes KeywordIndex: "medical_record_number".
+        # - Para mostrar el valor seguimos rellenando en folder_item().
+        "index": "medical_record_number",
         "after": "getId",
     }),
 ]
 
 
 class SamplesListingAdapter(object):
-    """Generic adapter for sample listings (MRN + Patient 4-field schema)"""
+    """Adapter para listings de muestras con MRN + Patient 4 campos."""
     adapts(IListingView)
     implements(IListingViewAdapter)
 
@@ -106,35 +124,31 @@ class SamplesListingAdapter(object):
 
     @check_installed(None)
     def folder_item(self, obj, item, index):
-        """Inject MRN and Patient fullname into the listing rows"""
+        """Inyecta MRN y nombre del paciente a cada fila del listing."""
         if self.show_icon_temp_mrn and getattr(obj, "isMedicalRecordTemporary", False):
             after_icons = item["after"].get("getId", "")
             kwargs = {"width": 16, "title": _("Temporary MRN")}
             after_icons += self.icon_tag("id-card-red", **kwargs)
             item["after"].update({"getId": after_icons})
 
-        # Defaults
         item["MRN"] = ""
         item["Patient"] = _("No patient")
 
-        # --- MRN from sample first ---
-        mrn = None
-        getter = getattr(obj, "getMedicalRecordNumberValue", None)
-        if callable(getter):
-            try:
-                mrn = getter()
-            except Exception:
-                mrn = None
-        mrn = _normalize_value(mrn)
+        # 1) MRN desde el campo (NO getMedicalRecordNumberValue)
+        mrn = _get_mrn_from_obj(obj)
 
-        # fallback: get from patient
+        # 2) Paciente
         patient = getattr(obj, "getPatient", lambda: None)()
         if not mrn and patient:
-            mrn = _normalize_value(getattr(patient, "mrn", None) or getattr(patient, "MedicalRecordNumber", None))
+            # fallback: MRN desde el paciente si el AR no lo trae
+            mrn = _normalize_value(
+                getattr(patient, "mrn", None) or
+                getattr(patient, "MedicalRecordNumber", None)
+            )
 
         item["MRN"] = mrn
 
-        # --- Fullname ---
+        # 3) Nombre completo del Paciente
         fullname = u""
         if patient:
             for key in ("getFullName", "getPatientFullName", "Title"):
@@ -150,6 +164,7 @@ class SamplesListingAdapter(object):
                     break
 
             if not fullname:
+                # Construcción por partes
                 parts = []
                 for fld in ("firstname", "middlename", "lastname", "maternal_lastname"):
                     parts.append(_normalize_value(getattr(patient, fld, None)))
@@ -157,13 +172,11 @@ class SamplesListingAdapter(object):
 
         item["Patient"] = fullname if fullname else _("No patient")
 
-        # Link MRN and Patient
+        # 4) Enlaces
         if patient and mrn:
             patient_url = api.get_url(patient)
             item["replace"]["MRN"] = get_link(patient_url, mrn)
-
-            patient_view_url = "{}/@@view".format(patient_url)
-            item["Patient"] = get_link(patient_view_url, item["Patient"])
+            item["Patient"] = get_link("{}/@@view".format(patient_url), item["Patient"])
 
         return item
 
@@ -178,8 +191,10 @@ class SamplesListingAdapter(object):
     @check_installed(None)
     def before_render(self):
         rv_keys = map(lambda r: r["id"], self.listing.review_states)
+
         for column_id, column_values in ADD_COLUMNS:
             if column_id == "MRN" and self.is_patient_context():
+                # En contexto Paciente, la columna MRN es redundante
                 continue
             add_column(
                 listing=self.listing,
