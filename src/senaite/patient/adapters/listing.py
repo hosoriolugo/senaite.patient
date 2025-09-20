@@ -12,16 +12,12 @@
 # General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License along with
-# this program; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+# this program; if not, write to the Free Software Foundation, Inc., 51
+# Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
-# Copyright 2020-2025
-#
-# Adapter to enrich Analysis Request listings with MRN and Patient full name.
-# Ensures values are shown even when payload comes from custom patient widgets
-# (dicts/labels) and when AR stores only Patient reference.
-#
-from __future__ import absolute_import
+# ------------------------------------------------------------------------
+# Adjusted: robust MRN/Patient resolution so listings never show empty values
+# ------------------------------------------------------------------------
 
 from bika.lims import api
 from bika.lims.utils import get_link
@@ -34,182 +30,169 @@ from senaite.app.listing.utils import add_review_state
 from senaite.patient import check_installed
 from senaite.patient import messageFactory as _
 from senaite.patient.api import get_patient_by_mrn
-from zope.component import adapts
+from zope.component import adapts, getMultiAdapter
 from zope.interface import implements
 
-try:
-    basestring
-except NameError:
-    basestring = str
+# Statuses to add
+ADD_STATUSES = [{
+    "id": "temp_mrn",
+    "title": _("Temporary MRN"),
+    "contentFilter": {
+        "is_temporary_mrn": True,
+        "sort_on": "created",
+        "sort_order": "descending",
+    },
+    "before": "to_be_verified",
+    "transitions": [],
+    "custom_transitions": [],
+}]
+
+# Columns to add
+ADD_COLUMNS = [
+    ("Patient", {
+        "title": _("Patient"),
+        "sortable": False,
+        "after": "getId",
+    }),
+    ("MRN", {
+        "title": _("MRN"),
+        "sortable": False,
+        "index": "medical_record_number",
+        "after": "getId",
+    }),
+]
 
 
-def _safe_unicode(value):
-    try:
-        return api.safe_unicode(value or u"" )
-    except Exception:
-        try:
-            return api.safe_unicode(u"%s" % value)
-        except Exception:
-            return u""
-
-
-def _patient_from_ar(ar):
-    # Try official API first
-    patient = getattr(ar, 'getPatient', None)
-    if callable(patient):
-        try:
-            patient = patient()
-        except Exception:
-            patient = None
-    else:
-        patient = None
-
-    # Fallback: lookup by MRN stored on AR schema/annotations
-    if not patient:
-        mrn = None
-        for key in ('getMedicalRecordNumberValue', 'MedicalRecordNumber',
-                    'getMedicalRecordNumber', 'medical_record_number',
-                    'mrn'):
-            getter = getattr(ar, key, None)
-            if callable(getter):
-                try:
-                    mrn = getter()
-                except Exception:
-                    mrn = None
-            elif getter is not None and isinstance(getter, basestring):
-                mrn = getter
-            if mrn:
-                break
-        if mrn:
-            try:
-                patient = get_patient_by_mrn(mrn)
-            except Exception:
-                patient = None
-    return patient
-
-
-def _fullname_from_patient(patient):
-    if not patient:
-        return u""
-    # Prefer the computed accessor if present
-    for key in ('getFullName', 'getPatientFullName', 'Title'):
-        acc = getattr(patient, key, None)
-        if callable(acc):
-            try:
-                return _safe_unicode(acc())
-            except Exception:
-                pass
-    # Build from 4-part schema if available
-    parts = []
-    for fld in ('firstname', 'middlename', 'lastname', 'maternallastname'):
-        getter = getattr(patient, 'get_' + fld, None) or getattr(patient, 'get' + fld.capitalize(), None)
-        val = getter() if callable(getter) else getattr(patient, fld, u"",)
-        if val:
-            parts.append(_safe_unicode(val))
-    if parts:
-        return u" ".join([p for p in parts if p])
-    # Fallback to id
-    return _safe_unicode(getattr(patient, 'Title', lambda: patient.getId())()) if hasattr(patient, 'Title') else _safe_unicode(patient.getId())
-
-
-class ARListingAdapter(object):
-    """Adds MRN and Patient columns to Analysis Requests listing.
-    """
-    implements(IListingViewAdapter)
+class SamplesListingAdapter(object):
+    """Generic adapter for sample listings (with robust MRN/Patient)"""
     adapts(IListingView)
+    implements(IListingViewAdapter)
 
-    def __init__(self, view):
-        self.view = view
+    priority_order = 99999
+
+    def __init__(self, listing, context):
+        self.listing = listing
+        self.context = context
 
     @property
-    def portal_type(self):
-        return self.view.context.portal_type
-
     @memoize
-    def _is_ar_listing(self):
-        # Limit to AR listings
-        return getattr(self.view, 'contentFilter', {}).get('portal_type') in ('AnalysisRequest',)
+    def senaite_theme(self):
+        return getMultiAdapter(
+            (self.context, self.listing.request),
+            name="senaite_theme")
 
-    def before_render(self):
-        if not self._is_ar_listing():
-            return
-        if not check_installed():
-            return
+    def icon_tag(self, name, **kwargs):
+        return self.senaite_theme.icon_tag(name, **kwargs)
 
-        # Add MRN
-        add_column(
-            self.view,
-            after='getId',
-            name='getMedicalRecordNumberValue',
-            title=_('MRN'),
-            index='getMedicalRecordNumberValue',
-            toggle=True,
-            sortable=True,
-            getter=self._col_mrn)
+    @property
+    @memoize
+    def show_icon_temp_mrn(self):
+        return api.get_registry_record("senaite.patient.show_icon_temp_mrn")
 
-        # Add Patient
-        add_column(
-            self.view,
-            after='getMedicalRecordNumberValue',
-            name='getPatientFullName',
-            title=_('Patient'),
-            index='getPatientFullName',
-            toggle=True,
-            sortable=True,
-            getter=self._col_patient)
+    @check_installed(None)
+    def folder_item(self, obj, item, index):
+        if self.show_icon_temp_mrn and getattr(obj, "isMedicalRecordTemporary", False):
+            after_icons = item["after"].get("getId", "")
+            kwargs = {"width": 16, "title": _("Temporary MRN")}
+            after_icons += self.icon_tag("id-card-red", **kwargs)
+            item["after"].update({"getId": after_icons})
 
-    def _col_mrn(self, item, obj, *args):
-        # Prefer catalog brain value if available to avoid wakeup
-        brain = item.get('brain')
-        if brain:
-            val = getattr(brain, 'getMedicalRecordNumberValue', None)
-            if val:
-                return _safe_unicode(val)
-
-        # Compute from object
-        patient = _patient_from_ar(obj)
-        if patient:
-            getter = getattr(patient, 'getMedicalRecordNumber', None) or getattr(patient, 'getMRN', None)
-            if callable(getter):
-                try:
-                    return _safe_unicode(getter())
-                except Exception:
-                    pass
-            mrn_attr = getattr(patient, 'MedicalRecordNumber', None) or getattr(patient, 'mrn', None)
-            if isinstance(mrn_attr, basestring):
-                return _safe_unicode(mrn_attr)
-        # Last chance: attribute on AR
-        for key in ('getMedicalRecordNumberValue', 'MedicalRecordNumber', 'medical_record_number', 'mrn'):
-            v = getattr(obj, key, None)
-            if callable(v):
-                try:
-                    return _safe_unicode(v())
-                except Exception:
-                    continue
-            elif isinstance(v, basestring):
-                return _safe_unicode(v)
-        return u""
-
-    def _col_patient(self, item, obj, *args):
-        # Prefer catalog brain for performance
-        brain = item.get('brain')
-        if brain:
-            val = getattr(brain, 'getPatientFullName', None)
-            if val:
-                # Render as link to patient if UID present
-                puid = getattr(brain, 'getPatientUID', None)
-                if puid:
-                    patient = api.get_object_by_uid(puid)
-                    if patient:
-                        return get_link(patient, text=_safe_unicode(val))
-                return _safe_unicode(val)
-
-        # Compute from object
-        patient = _patient_from_ar(obj)
-        if not patient:
-            return _safe_unicode(_(u"No patient"))
-        fullname = _fullname_from_patient(patient)
+        # --- MRN with fallback ---
+        sample_patient_mrn = ""
         try:
-            return get_link(patient, text=fullname)
+            sample_patient_mrn = api.to_utf8(obj.getMedicalRecordNumberValue(), default="")
         except Exception:
-            return fullname
+            # fallback: maybe a direct field/method
+            mrn = getattr(obj, "MedicalRecordNumber", None) or getattr(obj, "mrn", "")
+            sample_patient_mrn = api.safe_unicode(mrn) if mrn else ""
+
+        # --- Fullname with fallback ---
+        sample_patient_fullname = ""
+        try:
+            sample_patient_fullname = api.to_utf8(obj.getPatientFullName(), default="")
+        except Exception:
+            patient = getattr(obj, "getPatient", lambda: None)()
+            if patient:
+                # try computed fullname or build from parts
+                for key in ("getFullName", "getPatientFullName", "Title"):
+                    fn = getattr(patient, key, None)
+                    if callable(fn):
+                        try:
+                            sample_patient_fullname = api.safe_unicode(fn())
+                            break
+                        except Exception:
+                            pass
+                if not sample_patient_fullname:
+                    parts = []
+                    for fld in ("firstname", "middlename", "lastname", "maternallastname"):
+                        val = getattr(patient, fld, "") or getattr(patient, "get_" + fld, lambda: "")()
+                        if val:
+                            parts.append(api.safe_unicode(val))
+                    if parts:
+                        sample_patient_fullname = u" ".join(parts)
+
+        item["MRN"] = sample_patient_mrn
+        item["Patient"] = sample_patient_fullname or _("No patient")
+
+        # get the patient object by MRN
+        patient = self.get_patient_by_mrn(sample_patient_mrn)
+        if not patient:
+            return
+
+        # Link MRN to patient
+        patient_url = api.get_url(patient)
+        if sample_patient_mrn:
+            item["replace"]["MRN"] = get_link(patient_url, sample_patient_mrn)
+
+        patient_mrn = getattr(patient, "getMRN", lambda: "")()
+        patient_fullname = getattr(patient, "getFullname", lambda: "")()
+
+        if sample_patient_mrn != patient_mrn:
+            msg = _("Patient MRN of sample is not equal to %s")
+            val = api.safe_unicode(patient_mrn) or _("<no value>")
+            icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
+            item["after"]["MRN"] = self.icon_tag("info", **icon_args)
+
+        if sample_patient_fullname != patient_fullname:
+            msg = _("Patient fullname of sample is not equal to %s")
+            val = api.safe_unicode(patient_fullname) or _("<no value>")
+            icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
+            item["after"]["Patient"] = self.icon_tag("info", **icon_args)
+        else:
+            patient_view_url = "{}/@@view".format(patient_url)
+            patient_view_url = get_link(patient_view_url, sample_patient_fullname)
+            item["Patient"] = patient_view_url
+
+    @viewcache
+    def get_patient_by_mrn(self, mrn):
+        if not mrn:
+            return None
+        if self.is_patient_context():
+            return self.context
+        return get_patient_by_mrn(mrn)
+
+    @check_installed(None)
+    def before_render(self):
+        rv_keys = map(lambda r: r["id"], self.listing.review_states)
+        for column_id, column_values in ADD_COLUMNS:
+            if column_id == "MRN" and self.is_patient_context():
+                continue
+            add_column(
+                listing=self.listing,
+                column_id=column_id,
+                column_values=column_values,
+                after=column_values.get("after", None),
+                review_states=rv_keys)
+
+        for status in ADD_STATUSES:
+            sid = status.get("id")
+            if sid == "temp_mrn" and self.is_patient_context():
+                continue
+            after = status.get("after", None)
+            before = status.get("before", None)
+            if not status.get("columns"):
+                status.update({"columns": self.listing.columns.keys()})
+            add_review_state(self.listing, status, after=after, before=before)
+
+    def is_patient_context(self):
+        return api.get_portal_type(self.context) == "Patient"
