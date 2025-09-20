@@ -11,10 +11,6 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
 # General Public License for more details.
 #
-# You should have received a copy of the GNU General Public License along with
-# this program; if not, write to the Free Software Foundation, Inc., 51
-# Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-#
 # ------------------------------------------------------------------------
 # Subscribers for Analysis Requests
 # Adjusted to reindex MRN/Patient safely and tolerate RequestContainer
@@ -49,16 +45,13 @@ def on_object_created(instance, event):
     """Event handler when a sample was created"""
     patient = update_patient(instance)
 
-    # no patient created when the MRN is temporary
     if not patient:
         return
 
-    # append patient email to sample CC emails
     if patient.getEmailReport():
         email = patient.getEmail()
         add_cc_email(instance, email)
 
-    # share patient with sample's client users if necessary
     reg_key = "senaite.patient.share_patients"
     if api.get_registry_record(reg_key, default=False):
         client_uid = api.get_uid(instance.getClient())
@@ -68,7 +61,6 @@ def on_object_created(instance, event):
             client_uids.append(client_uid)
             behavior.setClients(client_uids)
 
-    # ensure reindex after creation
     _safe_reindex(instance)
 
 
@@ -77,7 +69,6 @@ def on_object_edited(instance, event):
     """Event handler when a sample was edited"""
     update_patient(instance)
     update_results_ranges(instance)
-    # ensure reindex after modification
     _safe_reindex(instance)
 
 
@@ -96,22 +87,28 @@ def update_patient(instance):
 
     Tolerant to non-AR objects (e.g. RequestContainer in add form).
     """
-    # skip if this is not a real AR (e.g. RequestContainer)
-    if not hasattr(instance, "getMedicalRecordNumberValue") or not hasattr(instance, "getField"):
+    # skip invalid instances (e.g. RequestContainer)
+    if not hasattr(instance, "getField"):
         return None
 
-    # skip if temporary MRN (and method exists)
-    if hasattr(instance, "isMedicalRecordTemporary") and instance.isMedicalRecordTemporary():
+    # obtain MRN safely
+    mrn_getter = getattr(instance, "getMedicalRecordNumberValue", None)
+    if callable(mrn_getter):
+        mrn = mrn_getter()
+    else:
+        field = instance.getField("MedicalRecordNumber") if hasattr(instance, "getField") else None
+        mrn = field.get(instance) if field else None
+
+    if not mrn:
         return None
 
-    mrn = instance.getMedicalRecordNumberValue()
-    if mrn is None:
-        return
+    # skip temporary MRN
+    if hasattr(instance, "isMedicalRecordTemporary") and callable(instance.isMedicalRecordTemporary):
+        if instance.isMedicalRecordTemporary():
+            return None
 
-    # lookup patient by MRN
     patient = patient_api.get_patient_by_mrn(mrn, include_inactive=True)
 
-    # create a new patient if not found
     if patient is None:
         if patient_api.is_patient_allowed_in_client():
             container = instance.getClient()
@@ -137,17 +134,21 @@ def update_patient(instance):
 
 def get_patient_fields(instance):
     """Extract the patient fields from the sample"""
-    mrn = instance.getMedicalRecordNumberValue()
+    mrn_getter = getattr(instance, "getMedicalRecordNumberValue", None)
+    mrn = mrn_getter() if callable(mrn_getter) else None
+
     sex = instance.getField("Sex").get(instance)
     gender = instance.getField("Gender").get(instance)
     dob_field = instance.getField("DateOfBirth")
     birthdate = dob_field.get_date_of_birth(instance)
     estimated = dob_field.get_estimated(instance)
     address = instance.getField("PatientAddress").get(instance)
-    field = instance.getField("PatientFullName")
-    firstname = field.get_firstname(instance)
-    middlename = field.get_middlename(instance)
-    lastname = field.get_lastname(instance)
+
+    # 4 fields full name
+    firstname = getattr(instance, "getFirstName", lambda x=None: "")(instance)
+    middlename = getattr(instance, "getMiddleName", lambda x=None: "")(instance)
+    lastname = getattr(instance, "getLastName", lambda x=None: "")(instance)
+    maternallastname = getattr(instance, "getMaternalLastName", lambda x=None: "")(instance)
 
     if address:
         address = {
@@ -165,6 +166,7 @@ def get_patient_fields(instance):
         "firstname": api.safe_unicode(firstname),
         "middlename": api.safe_unicode(middlename),
         "lastname": api.safe_unicode(lastname),
+        "maternal_lastname": api.safe_unicode(maternallastname),
     }
 
 
