@@ -2,16 +2,16 @@
     xmlns="http://namespaces.zope.org/zope"
     i18n_domain="senaite.patient">
 
-  <!-- Sample (aka AnalysisRequest) Index Adapters -->
-  <!-- Todos apuntan a la implementación NUEVA en sample.py -->
-  <adapter name="is_temporary_mrn" factory=".sample.is_temporary_mrn"/>
-  <adapter name="medical_record_number" factory=".sample.medical_record_number"/>
-  <adapter name="patient_fullname" factory=".sample.patient_fullname"/>
+  <!-- Sample (AnalysisRequest) indexers -->
+  <adapter name="is_temporary_mrn" factory=".sample.is_temporary_mrn" />
+  <adapter name="medical_record_number" factory=".sample.medical_record_number" />
+  <!-- OJO: ahora apunta al indexer real getPatientFullName -->
+  <adapter name="patient_fullname" factory=".sample.getPatientFullName" />
 
   <!-- Tokens extra para listing_searchable_text -->
-  <adapter factory=".sample.ListingSearchableTextProvider"/>
+  <adapter factory=".sample.ListingSearchableTextProvider" />
 
-  <!-- Patient Indexes (ya existen; asegúrate de que sus factories leen tus campos nuevos) -->
+  <!-- Patient indexers (catálogo de pacientes) -->
   <adapter name="patient_mrn" factory=".patient.patient_mrn" />
   <adapter name="patient_identifier_keys" factory=".patient.patient_identifier_keys" />
   <adapter name="patient_identifier_values" factory=".patient.patient_identifier_values" />
