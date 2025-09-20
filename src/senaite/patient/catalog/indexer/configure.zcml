@@ -2,9 +2,13 @@
     xmlns="http://namespaces.zope.org/zope"
     i18n_domain="senaite.patient">
 
-  <!-- Sample (aka AnalysisRequest) Index Adapters -->
+  <!-- Sample (aka AnalysisRequest) Index Adapters (LEGACY: se conservan) -->
   <adapter name="is_temporary_mrn" factory=".sample.is_temporary_mrn"/>
   <adapter name="medical_record_number" factory=".sample.medical_record_number"/>
+
+  <!-- NUEVOS indexers para Sample/AR (MRN y nombre del paciente) -->
+  <adapter name="medical_record_number_v2" factory=".sample.medical_record_number_v2"/>
+  <adapter name="patient_fullname_v2" factory=".sample.patient_fullname_v2"/>
 
   <!-- Additional tokens for listing_searchable_text -->
   <adapter factory=".sample.ListingSearchableTextProvider"/>
