@@ -9,7 +9,7 @@
 # ------------------------------------------------------------------------
 # Subscribers for Analysis Requests
 # Final adjusted version: always use field "MedicalRecordNumber" (normalized)
-# and the 4-part fullname fields. Prevents dict errors.
+# and the 4-part fullname fields. Prevents dict errors and binds Patient to AR.
 # ------------------------------------------------------------------------
 
 from __future__ import absolute_import
@@ -20,16 +20,32 @@ from senaite.patient import api as patient_api
 from senaite.patient import check_installed
 from senaite.patient import logger
 
+try:
+    basestring
+except NameError:
+    basestring = str
+
 
 def _safe_reindex(obj):
-    """Reindex patient-related indexes in AR"""
+    """Reindex patient-related indexes in AR, tolerante a RequestContainer."""
     try:
-        obj.reindexObject(idxs=[
-            "getPatientUID",
-            "getPatientFullName",
-            "getMedicalRecordNumberValue",
-        ])
+        pt = None
+        try:
+            pt = api.get_portal_type(obj)
+        except Exception:
+            pt = None
+
+        # Solo forzamos los índices específicos si es un AnalysisRequest real
+        if pt in ("AnalysisRequest", "Sample"):
+            obj.reindexObject(idxs=[
+                "getPatientUID",
+                "getPatientFullName",
+                "getMedicalRecordNumberValue",
+            ])
+        else:
+            obj.reindexObject()
     except Exception:
+        # Fallback al reindex genérico
         try:
             obj.reindexObject()
         except Exception as e:
@@ -40,7 +56,7 @@ def _normalize_mrn(value):
     """Ensure MRN is always a unicode string (never dict)."""
     if not value:
         return u""
-    # if dict payload from ReferenceWidget
+    # dict payload from ReferenceWidget
     if isinstance(value, dict):
         for key in ("mrn", "MRN", "value", "text", "label", "title", "Title"):
             v = value.get(key)
@@ -50,6 +66,20 @@ def _normalize_mrn(value):
     if isinstance(value, basestring):
         return api.safe_unicode(value.strip())
     return api.safe_unicode(str(value))
+
+
+def _get_mrn_from_field(instance):
+    """Lee y normaliza el MRN del campo 'MedicalRecordNumber'."""
+    if not hasattr(instance, "getField"):
+        return u""
+    field = instance.getField("MedicalRecordNumber")
+    if not field:
+        return u""
+    try:
+        raw = field.get(instance)
+    except Exception:
+        return u""
+    return _normalize_mrn(raw)
 
 
 @check_installed(None)
@@ -98,17 +128,18 @@ def update_patient(instance):
     if not hasattr(instance, "getField"):
         return None
 
-    # normalize MRN
-    field = instance.getField("MedicalRecordNumber") if hasattr(instance, "getField") else None
-    mrn = _normalize_mrn(field.get(instance) if field else None)
-
+    # MRN normalizado (puede venir como dict del ReferenceWidget)
+    mrn = _get_mrn_from_field(instance)
     if not mrn:
         return None
 
     # skip temporary MRN
     if hasattr(instance, "isMedicalRecordTemporary") and callable(instance.isMedicalRecordTemporary):
-        if instance.isMedicalRecordTemporary():
-            return None
+        try:
+            if instance.isMedicalRecordTemporary():
+                return None
+        except Exception:
+            pass
 
     patient = patient_api.get_patient_by_mrn(mrn, include_inactive=True)
 
@@ -121,8 +152,8 @@ def update_patient(instance):
         if not patient_api.is_patient_creation_allowed(container):
             return None
 
-        logger.info("Creating new Patient in '{}' with MRN: '{}'"
-                    .format(api.get_path(container), mrn))
+        logger.info("Creating new Patient in '{}' with MRN: '{}'".format(
+            api.get_path(container), mrn))
         values = get_patient_fields(instance, mrn)
         try:
             patient = api.create(container, "Patient")
@@ -131,6 +162,20 @@ def update_patient(instance):
             logger.error("%s" % exc)
             logger.error("Failed to create patient for values: %r" % values)
             raise exc
+
+    # --- Enlace AR → Patient y persistencia de MRN en el AR ---
+    if hasattr(instance, "setPatient"):
+        try:
+            instance.setPatient(patient)
+        except Exception as exc:
+            logger.warning("Failed to setPatient on AR: %r", exc)
+
+    field = instance.getField("MedicalRecordNumber")
+    if field:
+        try:
+            field.set(instance, mrn)  # guardar texto plano, no dict
+        except Exception as exc:
+            logger.warning("Failed to set MedicalRecordNumber on AR: %r", exc)
 
     return patient
 
