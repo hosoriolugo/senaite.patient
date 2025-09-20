@@ -56,22 +56,27 @@ def is_temporary_mrn(instance):
 def medical_record_number(instance):
     """
     Index 'medical_record_number' (KeywordIndex).
-    Lee el nuevo campo del AR; si está vacío, intenta desde el paciente (nuevo campo).
+    Prioriza obtener el MRN del paciente vinculado, luego del AR.
     """
+    # Primero intentar obtener del paciente vinculado
+    patient = _get_patient(instance)
+    if patient is not None:
+        # Usar el método getMRN del paciente si existe
+        if hasattr(patient, 'getMRN'):
+            mrn = patient.getMRN()
+            if mrn:
+                return [mrn]
+        # Fallback a atributo directo
+        mrn = getattr(patient, "mrn", u"")
+        if mrn:
+            return [mrn]
+
+    # Si no hay paciente, intentar del AR
     mrn = getattr(instance, "medical_record_number", u"")
     if callable(mrn):
         mrn = mrn()
     mrn = _s(mrn).strip()
 
-    if not mrn:
-        patient = _get_patient(instance)
-        if patient is not None:
-            pmrn = getattr(patient, "patient_mrn", u"")
-            if callable(pmrn):
-                pmrn = pmrn()
-            mrn = _s(pmrn).strip()
-
-    # Para KeywordIndex, devolver lista de tokens (0/1)
     return [mrn] if mrn else []
 
 
@@ -79,12 +84,23 @@ def medical_record_number(instance):
 def getPatientFullName(instance):
     """
     Index 'getPatientFullName' (FieldIndex).
-    Se toma SOLO del objeto paciente (nuevo campo).
+    Prioriza obtener el nombre del paciente vinculado, luego del AR.
     """
+    # Primero intentar obtener del paciente vinculado
     patient = _get_patient(instance)
-    if patient is None:
-        return u""
-    name = getattr(patient, "patient_fullname", u"")
+    if patient is not None:
+        # Usar el método getFullname del paciente si existe
+        if hasattr(patient, 'getFullname'):
+            name = patient.getFullname()
+            if name:
+                return _s(name).strip()
+        # Fallback a atributo directo
+        name = getattr(patient, "patient_fullname", u"")
+        if name:
+            return _s(name).strip()
+
+    # Si no hay paciente, intentar del AR
+    name = getattr(instance, "patient_fullname", u"")
     if callable(name):
         name = name()
     return _s(name).strip()
@@ -93,7 +109,7 @@ def getPatientFullName(instance):
 @adapter(IAnalysisRequest, ISenaitePatientLayer, ISampleCatalog)
 @implementer(IListingSearchableTextProvider)
 class ListingSearchableTextProvider(object):
-    """Añade MRN y nombre del paciente a listing_searchable_text (solo nuevos campos)."""
+    """Añade MRN y nombre del paciente a listing_searchable_text."""
 
     def __init__(self, context, request, catalog):
         self.context = context
@@ -103,31 +119,47 @@ class ListingSearchableTextProvider(object):
     def __call__(self):
         tokens = []
 
-        # MRN del AR (nuevo) o, si falta, del paciente (nuevo)
-        mrn = getattr(self.context, "medical_record_number", u"")
-        if callable(mrn):
-            mrn = mrn()
-        mrn = _s(mrn).strip()
-
+        # Primero intentar obtener del paciente vinculado
+        patient = _get_patient(self.context)
+        
+        # MRN: priorizar paciente vinculado
+        mrn = u""
+        if patient is not None:
+            # Usar el método getMRN del paciente si existe
+            if hasattr(patient, 'getMRN'):
+                mrn = patient.getMRN()
+            # Fallback a atributo directo
+            if not mrn:
+                mrn = getattr(patient, "mrn", u"")
+        
+        # Si no hay MRN del paciente, intentar del AR
         if not mrn:
-            patient = _get_patient(self.context)
-            if patient is not None:
-                pmrn = getattr(patient, "patient_mrn", u"")
-                if callable(pmrn):
-                    pmrn = pmrn()
-                mrn = _s(pmrn).strip()
-
+            mrn = getattr(self.context, "medical_record_number", u"")
+            if callable(mrn):
+                mrn = mrn()
+        
+        mrn = _s(mrn).strip()
         if mrn:
             tokens.append(mrn)
 
-        # Nombre completo del paciente (nuevo)
-        patient = _get_patient(self.context)
+        # Nombre completo: priorizar paciente vinculado
+        name = u""
         if patient is not None:
-            name = getattr(patient, "patient_fullname", u"")
+            # Usar el método getFullname del paciente si existe
+            if hasattr(patient, 'getFullname'):
+                name = patient.getFullname()
+            # Fallback a atributo directo
+            if not name:
+                name = getattr(patient, "patient_fullname", u"")
+        
+        # Si no hay nombre del paciente, intentar del AR
+        if not name:
+            name = getattr(self.context, "patient_fullname", u"")
             if callable(name):
                 name = name()
-            name = _s(name).strip()
-            if name:
-                tokens.append(name)
+        
+        name = _s(name).strip()
+        if name:
+            tokens.append(name)
 
         return tokens
