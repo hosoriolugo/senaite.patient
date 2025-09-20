@@ -8,12 +8,8 @@
 #
 # SENAITE.PATIENT is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-# General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License along with
-# this program; if not, write to the Free Software Foundation, Inc., 51
-# Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+# for more details.
 #
 # ------------------------------------------------------------------------
 # Adjusted: robust MRN/Patient resolution so listings never show empty values
@@ -25,13 +21,31 @@ from plone.memoize.instance import memoize
 from plone.memoize.view import memoize as viewcache
 from senaite.app.listing.interfaces import IListingView
 from senaite.app.listing.interfaces import IListingViewAdapter
-from senaite.app.listing.utils import add_column
-from senaite.app.listing.utils import add_review_state
+from senaite.app.listing.utils import add_column, add_review_state
 from senaite.patient import check_installed
 from senaite.patient import messageFactory as _
 from senaite.patient.api import get_patient_by_mrn
 from zope.component import adapts, getMultiAdapter
 from zope.interface import implements
+
+try:
+    basestring
+except NameError:
+    basestring = str
+
+
+def _normalize_value(value):
+    """Ensure value is a plain string, never a dict or None."""
+    if isinstance(value, dict):
+        for key in ("mrn", "MRN", "value", "text", "label", "title", "Title"):
+            v = value.get(key)
+            if isinstance(v, basestring) and v.strip():
+                return api.safe_unicode(v.strip())
+        return u""
+    if isinstance(value, basestring):
+        return api.safe_unicode(value.strip())
+    return u""
+
 
 # Statuses to add
 ADD_STATUSES = [{
@@ -57,7 +71,7 @@ ADD_COLUMNS = [
     ("MRN", {
         "title": _("MRN"),
         "sortable": False,
-        "index": "mrn",
+        "index": "medical_record_number",
         "after": "getId",
     }),
 ]
@@ -98,30 +112,32 @@ class SamplesListingAdapter(object):
             after_icons += self.icon_tag("id-card-red", **kwargs)
             item["after"].update({"getId": after_icons})
 
-        # Default values
+        # Defaults
         item["MRN"] = ""
         item["Patient"] = _("No patient")
 
-        # Resolve patient object
+        # Resolve patient
         patient = getattr(obj, "getPatient", lambda: None)()
         if not patient:
             return item
 
         # --- MRN ---
-        mrn = getattr(patient, "mrn", "") or ""
-        item["MRN"] = api.safe_unicode(mrn)
+        mrn = _normalize_value(getattr(patient, "mrn", None))
+        if not mrn:
+            mrn = _normalize_value(getattr(patient, "MedicalRecordNumber", None))
+        item["MRN"] = mrn
 
         # --- Full name (4 fields) ---
-        parts = [
-            getattr(patient, "firstname", ""),
-            getattr(patient, "middlename", ""),
-            getattr(patient, "lastname", ""),
-            getattr(patient, "maternal_lastname", ""),
-        ]
-        fullname = u" ".join(filter(None, parts))
-        item["Patient"] = api.safe_unicode(fullname) if fullname else _("No patient")
+        parts = []
+        for fld in ("firstname", "middlename", "lastname", "maternal_lastname"):
+            val = getattr(patient, fld, None)
+            val = _normalize_value(val)
+            if val:
+                parts.append(val)
+        fullname = u" ".join(parts)
+        item["Patient"] = fullname if fullname else _("No patient")
 
-        # Link MRN to patient
+        # Link MRN and Patient
         if mrn:
             patient_url = api.get_url(patient)
             item["replace"]["MRN"] = get_link(patient_url, mrn)
