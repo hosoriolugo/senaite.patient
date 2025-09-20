@@ -17,7 +17,7 @@
 #
 # ------------------------------------------------------------------------
 # Subscribers for Analysis Requests
-# Adjusted to always reindex MRN/Patient fields on create/modify
+# Adjusted to reindex MRN/Patient safely and tolerate RequestContainer
 # ------------------------------------------------------------------------
 
 from __future__ import absolute_import
@@ -27,8 +27,6 @@ from senaite.core.behaviors import IClientShareableBehavior
 from senaite.patient import api as patient_api
 from senaite.patient import check_installed
 from senaite.patient import logger
-from zope.component import adapter
-from zope.lifecycleevent.interfaces import IObjectAddedEvent, IObjectModifiedEvent
 
 
 def _safe_reindex(obj):
@@ -70,7 +68,7 @@ def on_object_created(instance, event):
             client_uids.append(client_uid)
             behavior.setClients(client_uids)
 
-    # 🔑 ensure reindex after creation
+    # ensure reindex after creation
     _safe_reindex(instance)
 
 
@@ -78,27 +76,9 @@ def on_object_created(instance, event):
 def on_object_edited(instance, event):
     """Event handler when a sample was edited"""
     update_patient(instance)
-    # update results ranges so dynamic specs are recalculated
     update_results_ranges(instance)
-    # 🔑 ensure reindex after modification
+    # ensure reindex after modification
     _safe_reindex(instance)
-
-
-# Extra safety: also hook Zope lifecycle events directly
-@adapter(IObjectAddedEvent)
-def ar_added_reindex(event):
-    obj = getattr(event, "object", None)
-    if not obj or getattr(obj, "portal_type", "") != "AnalysisRequest":
-        return
-    _safe_reindex(obj)
-
-
-@adapter(IObjectModifiedEvent)
-def ar_modified_reindex(obj, event=None):
-    ar = obj if getattr(obj, "portal_type", "") == "AnalysisRequest" else getattr(event, "object", None)
-    if not ar or getattr(ar, "portal_type", "") != "AnalysisRequest":
-        return
-    _safe_reindex(ar)
 
 
 def add_cc_email(sample, email):
@@ -112,19 +92,35 @@ def add_cc_email(sample, email):
 
 
 def update_patient(instance):
-    if instance.isMedicalRecordTemporary():
-        return
+    """Update or create Patient object for a given Analysis Request.
+
+    Tolerant to non-AR objects (e.g. RequestContainer in add form).
+    """
+    # skip if this is not a real AR (e.g. RequestContainer)
+    if not hasattr(instance, "getMedicalRecordNumberValue") or not hasattr(instance, "getField"):
+        return None
+
+    # skip if temporary MRN (and method exists)
+    if hasattr(instance, "isMedicalRecordTemporary") and instance.isMedicalRecordTemporary():
+        return None
+
     mrn = instance.getMedicalRecordNumberValue()
     if mrn is None:
         return
+
+    # lookup patient by MRN
     patient = patient_api.get_patient_by_mrn(mrn, include_inactive=True)
+
+    # create a new patient if not found
     if patient is None:
         if patient_api.is_patient_allowed_in_client():
             container = instance.getClient()
         else:
             container = patient_api.get_patient_folder()
+
         if not patient_api.is_patient_creation_allowed(container):
             return None
+
         logger.info("Creating new Patient in '{}' with MRN: '{}'"
                     .format(api.get_path(container), mrn))
         values = get_patient_fields(instance)
@@ -135,6 +131,7 @@ def update_patient(instance):
             logger.error("%s" % exc)
             logger.error("Failed to create patient for values: %r" % values)
             raise exc
+
     return patient
 
 
