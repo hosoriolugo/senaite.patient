@@ -1,3 +1,4 @@
+<?xml version="1.0"?>
 <configure
     xmlns="http://namespaces.zope.org/zope"
     i18n_domain="senaite.patient">
@@ -5,8 +6,8 @@
   <!-- Sample (AnalysisRequest) indexers -->
   <adapter name="is_temporary_mrn" factory=".sample.is_temporary_mrn" />
   <adapter name="medical_record_number" factory=".sample.medical_record_number" />
-  <!-- OJO: ahora apunta al indexer real getPatientFullName -->
-  <adapter name="patient_fullname" factory=".sample.getPatientFullName" />
+  <!-- Corregido: nombre correcto del índice -->
+  <adapter name="getPatientFullName" factory=".sample.getPatientFullName" />
 
   <!-- Tokens extra para listing_searchable_text -->
   <adapter factory=".sample.ListingSearchableTextProvider" />
