@@ -86,10 +86,6 @@ ADD_COLUMNS = [
     ("MRN", {
         "title": _("MRN"),
         "sortable": False,
-        # IMPORTANTE:
-        # - Para búsquedas/filtrado del listing, apunta al índice de catálogo existente.
-        # - Tienes KeywordIndex: "medical_record_number".
-        # - Para mostrar el valor seguimos rellenando en folder_item().
         "index": "medical_record_number",
         "after": "getId",
     }),
@@ -137,10 +133,15 @@ class SamplesListingAdapter(object):
         # 1) MRN desde el campo (NO getMedicalRecordNumberValue)
         mrn = _get_mrn_from_obj(obj)
 
-        # 2) Paciente
+        # 2) Paciente desde el AR
         patient = getattr(obj, "getPatient", lambda: None)()
+
+        # 3) Si no hay paciente pero hay MRN, buscar paciente por MRN
+        if not patient and mrn:
+            patient = self.get_patient_by_mrn(mrn)
+
+        # 4) Si no hay MRN pero hay paciente, obtener MRN del paciente
         if not mrn and patient:
-            # fallback: MRN desde el paciente si el AR no lo trae
             mrn = _normalize_value(
                 getattr(patient, "mrn", None) or
                 getattr(patient, "MedicalRecordNumber", None)
@@ -148,7 +149,7 @@ class SamplesListingAdapter(object):
 
         item["MRN"] = mrn
 
-        # 3) Nombre completo del Paciente
+        # 5) Nombre completo del Paciente
         fullname = u""
         if patient:
             for key in ("getFullName", "getPatientFullName", "Title"):
@@ -172,11 +173,11 @@ class SamplesListingAdapter(object):
 
         item["Patient"] = fullname if fullname else _("No patient")
 
-        # 4) Enlaces
+        # 6) Enlaces si existe paciente y MRN
         if patient and mrn:
             patient_url = api.get_url(patient)
             item["replace"]["MRN"] = get_link(patient_url, mrn)
-            item["Patient"] = get_link("{}/@@view".format(patient_url), item["Patient"])
+            item["replace"]["Patient"] = get_link(patient_url, item["Patient"])
 
         return item
 
@@ -194,7 +195,6 @@ class SamplesListingAdapter(object):
 
         for column_id, column_values in ADD_COLUMNS:
             if column_id == "MRN" and self.is_patient_context():
-                # En contexto Paciente, la columna MRN es redundante
                 continue
             add_column(
                 listing=self.listing,
