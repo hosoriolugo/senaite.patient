@@ -57,14 +57,14 @@ ADD_COLUMNS = [
     ("MRN", {
         "title": _("MRN"),
         "sortable": False,
-        "index": "medical_record_number",
+        "index": "mrn",
         "after": "getId",
     }),
 ]
 
 
 class SamplesListingAdapter(object):
-    """Generic adapter for sample listings (with robust MRN/Patient)"""
+    """Generic adapter for sample listings (MRN + Patient 4-field schema)"""
     adapts(IListingView)
     implements(IListingViewAdapter)
 
@@ -91,77 +91,45 @@ class SamplesListingAdapter(object):
 
     @check_installed(None)
     def folder_item(self, obj, item, index):
+        """Inject MRN and Patient fullname into the listing rows"""
         if self.show_icon_temp_mrn and getattr(obj, "isMedicalRecordTemporary", False):
             after_icons = item["after"].get("getId", "")
             kwargs = {"width": 16, "title": _("Temporary MRN")}
             after_icons += self.icon_tag("id-card-red", **kwargs)
             item["after"].update({"getId": after_icons})
 
-        # --- MRN with fallback ---
-        sample_patient_mrn = ""
-        try:
-            sample_patient_mrn = api.to_utf8(obj.getMedicalRecordNumberValue(), default="")
-        except Exception:
-            # fallback: maybe a direct field/method
-            mrn = getattr(obj, "MedicalRecordNumber", None) or getattr(obj, "mrn", "")
-            sample_patient_mrn = api.safe_unicode(mrn) if mrn else ""
+        # Default values
+        item["MRN"] = ""
+        item["Patient"] = _("No patient")
 
-        # --- Fullname with fallback ---
-        sample_patient_fullname = ""
-        try:
-            sample_patient_fullname = api.to_utf8(obj.getPatientFullName(), default="")
-        except Exception:
-            patient = getattr(obj, "getPatient", lambda: None)()
-            if patient:
-                # try computed fullname or build from parts
-                for key in ("getFullName", "getPatientFullName", "Title"):
-                    fn = getattr(patient, key, None)
-                    if callable(fn):
-                        try:
-                            sample_patient_fullname = api.safe_unicode(fn())
-                            break
-                        except Exception:
-                            pass
-                if not sample_patient_fullname:
-                    parts = []
-                    for fld in ("firstname", "middlename", "lastname", "maternallastname"):
-                        val = getattr(patient, fld, "") or getattr(patient, "get_" + fld, lambda: "")()
-                        if val:
-                            parts.append(api.safe_unicode(val))
-                    if parts:
-                        sample_patient_fullname = u" ".join(parts)
-
-        item["MRN"] = sample_patient_mrn
-        item["Patient"] = sample_patient_fullname or _("No patient")
-
-        # get the patient object by MRN
-        patient = self.get_patient_by_mrn(sample_patient_mrn)
+        # Resolve patient object
+        patient = getattr(obj, "getPatient", lambda: None)()
         if not patient:
-            return
+            return item
+
+        # --- MRN ---
+        mrn = getattr(patient, "mrn", "") or ""
+        item["MRN"] = api.safe_unicode(mrn)
+
+        # --- Full name (4 fields) ---
+        parts = [
+            getattr(patient, "firstname", ""),
+            getattr(patient, "middlename", ""),
+            getattr(patient, "lastname", ""),
+            getattr(patient, "maternal_lastname", ""),
+        ]
+        fullname = u" ".join(filter(None, parts))
+        item["Patient"] = api.safe_unicode(fullname) if fullname else _("No patient")
 
         # Link MRN to patient
-        patient_url = api.get_url(patient)
-        if sample_patient_mrn:
-            item["replace"]["MRN"] = get_link(patient_url, sample_patient_mrn)
+        if mrn:
+            patient_url = api.get_url(patient)
+            item["replace"]["MRN"] = get_link(patient_url, mrn)
 
-        patient_mrn = getattr(patient, "getMRN", lambda: "")()
-        patient_fullname = getattr(patient, "getFullname", lambda: "")()
-
-        if sample_patient_mrn != patient_mrn:
-            msg = _("Patient MRN of sample is not equal to %s")
-            val = api.safe_unicode(patient_mrn) or _("<no value>")
-            icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
-            item["after"]["MRN"] = self.icon_tag("info", **icon_args)
-
-        if sample_patient_fullname != patient_fullname:
-            msg = _("Patient fullname of sample is not equal to %s")
-            val = api.safe_unicode(patient_fullname) or _("<no value>")
-            icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
-            item["after"]["Patient"] = self.icon_tag("info", **icon_args)
-        else:
             patient_view_url = "{}/@@view".format(patient_url)
-            patient_view_url = get_link(patient_view_url, sample_patient_fullname)
-            item["Patient"] = patient_view_url
+            item["Patient"] = get_link(patient_view_url, item["Patient"])
+
+        return item
 
     @viewcache
     def get_patient_by_mrn(self, mrn):
