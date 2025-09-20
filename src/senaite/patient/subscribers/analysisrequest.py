@@ -29,19 +29,23 @@ except NameError:
 def _safe_reindex(obj):
     """Reindex patient-related indexes in AR, tolerante a RequestContainer."""
     try:
-        pt = None
         try:
             pt = api.get_portal_type(obj)
         except Exception:
             pt = None
 
-        # Solo forzamos los índices específicos si es un AnalysisRequest real
+        # Solo forzamos índices específicos para AR/Sample
         if pt in ("AnalysisRequest", "Sample"):
-            obj.reindexObject(idxs=[
-                "getPatientUID",
-                "getPatientFullName",
-                "getMedicalRecordNumberValue",
-            ])
+            idxs = ["getPatientUID", "getPatientFullName"]
+
+            # Forzar MRN solo si el objeto realmente expone el campo/método
+            has_field = hasattr(obj, "getField") and obj.getField("MedicalRecordNumber")
+            has_accessor = hasattr(obj, "getMedicalRecordNumber")
+            if has_field or has_accessor:
+                # ¡Nombre correcto del índice!
+                idxs.append("getMedicalRecordNumber")
+
+            obj.reindexObject(idxs=idxs)
         else:
             obj.reindexObject()
     except Exception:
@@ -115,11 +119,11 @@ def on_object_edited(instance, event):
 
 def add_cc_email(sample, email):
     """add CC email recipient to sample"""
-    emails = sample.getCCEmails().split(",")
-    if email in emails:
-        return
-    emails.append(email)
-    emails = map(lambda e: e.strip(), emails)
+    current = sample.getCCEmails() or ""
+    emails = [e.strip() for e in current.split(",") if e.strip()]
+    new_email = (email or "").strip()
+    if new_email and new_email not in emails:
+        emails.append(new_email)
     sample.setCCEmails(",".join(emails))
 
 
@@ -152,15 +156,15 @@ def update_patient(instance):
         if not patient_api.is_patient_creation_allowed(container):
             return None
 
-        logger.info("Creating new Patient in '{}' with MRN: '{}'".format(
-            api.get_path(container), mrn))
+        logger.info("Creating new Patient in '%s' with MRN: '%s'",
+                    api.get_path(container), mrn)
         values = get_patient_fields(instance, mrn)
         try:
             patient = api.create(container, "Patient")
             patient_api.update_patient(patient, **values)
         except ValueError as exc:
-            logger.error("%s" % exc)
-            logger.error("Failed to create patient for values: %r" % values)
+            logger.error("%s", exc)
+            logger.error("Failed to create patient for values: %r", values)
             raise exc
 
     # --- Enlace AR → Patient y persistencia de MRN en el AR ---
