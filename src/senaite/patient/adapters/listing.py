@@ -19,8 +19,7 @@ from bika.lims import api
 from bika.lims.utils import get_link
 from plone.memoize.instance import memoize
 from plone.memoize.view import memoize as viewcache
-from senaite.app.listing.interfaces import IListingView
-from senaite.app.listing.interfaces import IListingViewAdapter
+from senaite.app.listing.interfaces import IListingView, IListingViewAdapter
 from senaite.app.listing.utils import add_column, add_review_state
 from senaite.patient import check_installed
 from senaite.patient import messageFactory as _
@@ -35,7 +34,7 @@ except NameError:
 
 
 def _normalize_value(value):
-    """Ensure value is a plain string, never a dict or None."""
+    """Ensure value is always a plain unicode string."""
     if isinstance(value, dict):
         for key in ("mrn", "MRN", "value", "text", "label", "title", "Title"):
             v = value.get(key)
@@ -44,7 +43,9 @@ def _normalize_value(value):
         return u""
     if isinstance(value, basestring):
         return api.safe_unicode(value.strip())
-    return u""
+    if value is None:
+        return u""
+    return api.safe_unicode(str(value))
 
 
 # Statuses to add
@@ -71,7 +72,7 @@ ADD_COLUMNS = [
     ("MRN", {
         "title": _("MRN"),
         "sortable": False,
-        "index": "medical_record_number",
+        "index": "getMedicalRecordNumberValue",
         "after": "getId",
     }),
 ]
@@ -116,29 +117,48 @@ class SamplesListingAdapter(object):
         item["MRN"] = ""
         item["Patient"] = _("No patient")
 
-        # Resolve patient
-        patient = getattr(obj, "getPatient", lambda: None)()
-        if not patient:
-            return item
+        # --- MRN from sample first ---
+        mrn = None
+        getter = getattr(obj, "getMedicalRecordNumberValue", None)
+        if callable(getter):
+            try:
+                mrn = getter()
+            except Exception:
+                mrn = None
+        mrn = _normalize_value(mrn)
 
-        # --- MRN ---
-        mrn = _normalize_value(getattr(patient, "mrn", None))
-        if not mrn:
-            mrn = _normalize_value(getattr(patient, "MedicalRecordNumber", None))
+        # fallback: get from patient
+        patient = getattr(obj, "getPatient", lambda: None)()
+        if not mrn and patient:
+            mrn = _normalize_value(getattr(patient, "mrn", None) or getattr(patient, "MedicalRecordNumber", None))
+
         item["MRN"] = mrn
 
-        # --- Full name (4 fields) ---
-        parts = []
-        for fld in ("firstname", "middlename", "lastname", "maternal_lastname"):
-            val = getattr(patient, fld, None)
-            val = _normalize_value(val)
-            if val:
-                parts.append(val)
-        fullname = u" ".join(parts)
+        # --- Fullname ---
+        fullname = u""
+        if patient:
+            for key in ("getFullName", "getPatientFullName", "Title"):
+                acc = getattr(patient, key, None)
+                if callable(acc):
+                    try:
+                        fullname = _normalize_value(acc())
+                        break
+                    except Exception:
+                        continue
+                elif isinstance(acc, basestring):
+                    fullname = _normalize_value(acc)
+                    break
+
+            if not fullname:
+                parts = []
+                for fld in ("firstname", "middlename", "lastname", "maternal_lastname"):
+                    parts.append(_normalize_value(getattr(patient, fld, None)))
+                fullname = u" ".join([p for p in parts if p])
+
         item["Patient"] = fullname if fullname else _("No patient")
 
         # Link MRN and Patient
-        if mrn:
+        if patient and mrn:
             patient_url = api.get_url(patient)
             item["replace"]["MRN"] = get_link(patient_url, mrn)
 
