@@ -171,15 +171,29 @@ def update_patient(instance):
     if hasattr(instance, "setPatient"):
         try:
             instance.setPatient(patient)
+            # Verificar que el vinculado fue exitoso
+            linked_patient = instance.getPatient()
+            if linked_patient:
+                logger.info("Patient %s successfully linked to AR %s", 
+                           linked_patient.getId(), instance.getId())
+            else:
+                logger.warning("setPatient succeeded but getPatient returned None for AR %s", 
+                              instance.getId())
         except Exception as exc:
-            logger.warning("Failed to setPatient on AR: %r", exc)
+            logger.error("Failed to setPatient on AR %s: %r", instance.getId(), exc)
 
-    field = instance.getField("MedicalRecordNumber")
-    if field:
-        try:
-            field.set(instance, mrn)  # guardar texto plano, no dict
-        except Exception as exc:
-            logger.warning("Failed to set MedicalRecordNumber on AR: %r", exc)
+    # Persistir los valores en los campos del AR
+    try:
+        # Usar los setters adecuados para los campos
+        if hasattr(instance, "setMedicalRecordNumberValue"):
+            instance.setMedicalRecordNumberValue(mrn)
+        
+        if hasattr(instance, "setPatientFullName") and patient:
+            fullname = patient.getFullname()
+            if fullname:
+                instance.setPatientFullName(fullname)
+    except Exception as exc:
+        logger.error("Failed to set patient fields on AR %s: %r", instance.getId(), exc)
 
     return patient
 
@@ -195,10 +209,14 @@ def get_patient_fields(instance, mrn=None):
     estimated = dob_field.get_estimated(instance)
     address = instance.getField("PatientAddress").get(instance)
 
-    firstname = getattr(instance, "getFirstName", lambda x=None: "")(instance)
-    middlename = getattr(instance, "getMiddleName", lambda x=None: "")(instance)
-    lastname = getattr(instance, "getLastName", lambda x=None: "")(instance)
-    maternallastname = getattr(instance, "getMaternalLastName", lambda x=None: "")(instance)
+    # Obtener los 4 campos del nombre usando los métodos del campo PatientFullName
+    fullname_field = instance.getField("PatientFullName")
+    
+    # Usar los métodos del campo para extraer los componentes individuales
+    firstname = fullname_field.get_firstname(instance)
+    middlename = fullname_field.get_middlename(instance)
+    lastname = fullname_field.get_lastname(instance)
+    maternallastname = fullname_field.get_maternal_lastname(instance)
 
     if address:
         address = {
