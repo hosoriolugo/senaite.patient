@@ -32,27 +32,31 @@ try:
 except NameError:
     basestring = str
 
+
 def _s(v):
     try:
         return api.safe_unicode(v) if v is not None else u""
     except Exception:
         return u""
 
+
 def _get_patient(ar):
-    # Usa SOLO el método/campo actual para obtener el paciente desde el AR
+    """Usa SOLO el método/campo actual para obtener el paciente desde el AR."""
     getter = getattr(ar, "getPatient", None)
     return getter() if callable(getter) else None
 
+
 @indexer(IAnalysisRequest)
 def is_temporary_mrn(instance):
-    # SOLO nuevo campo
+    """Index booleano: nuevo campo del AR."""
     return bool(getattr(instance, "is_temporary_mrn", False))
+
 
 @indexer(IAnalysisRequest)
 def medical_record_number(instance):
     """
     Index 'medical_record_number' (KeywordIndex).
-    SOLO lee el nuevo campo del AR; si está vacío, intenta del paciente (nuevo campo).
+    Lee el nuevo campo del AR; si está vacío, intenta desde el paciente (nuevo campo).
     """
     mrn = getattr(instance, "medical_record_number", u"")
     if callable(mrn):
@@ -67,13 +71,14 @@ def medical_record_number(instance):
                 pmrn = pmrn()
             mrn = _s(pmrn).strip()
 
-    # Para KeywordIndex, lista de tokens (0/1)
+    # Para KeywordIndex, devolver lista de tokens (0/1)
     return [mrn] if mrn else []
 
+
 @indexer(IAnalysisRequest)
-def patient_fullname(instance):
+def getPatientFullName(instance):
     """
-    Index 'patient_fullname' (FieldIndex).
+    Index 'getPatientFullName' (FieldIndex).
     Se toma SOLO del objeto paciente (nuevo campo).
     """
     patient = _get_patient(instance)
@@ -84,10 +89,12 @@ def patient_fullname(instance):
         name = name()
     return _s(name).strip()
 
+
 @adapter(IAnalysisRequest, ISenaitePatientLayer, ISampleCatalog)
 @implementer(IListingSearchableTextProvider)
 class ListingSearchableTextProvider(object):
     """Añade MRN y nombre del paciente a listing_searchable_text (solo nuevos campos)."""
+
     def __init__(self, context, request, catalog):
         self.context = context
         self.request = request
@@ -95,7 +102,8 @@ class ListingSearchableTextProvider(object):
 
     def __call__(self):
         tokens = []
-        # MRN del AR (nuevo)
+
+        # MRN del AR (nuevo) o, si falta, del paciente (nuevo)
         mrn = getattr(self.context, "medical_record_number", u"")
         if callable(mrn):
             mrn = mrn()
@@ -112,7 +120,7 @@ class ListingSearchableTextProvider(object):
         if mrn:
             tokens.append(mrn)
 
-        # Nombre del paciente (nuevo)
+        # Nombre completo del paciente (nuevo)
         patient = _get_patient(self.context)
         if patient is not None:
             name = getattr(patient, "patient_fullname", u"")
