@@ -6,15 +6,10 @@
 # under the terms of the GNU General Public License as published by the Free
 # Software Foundation, version 2.
 #
-# SENAITE.PATIENT is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU General Public License for more details.
-#
 # ------------------------------------------------------------------------
 # Subscribers for Analysis Requests
-# Final adjusted version: always use field "MedicalRecordNumber" and
-# the 4-part fullname fields. Removed reliance on getMedicalRecordNumberValue()
+# Final adjusted version: always use field "MedicalRecordNumber" (normalized)
+# and the 4-part fullname fields. Prevents dict errors.
 # ------------------------------------------------------------------------
 
 from __future__ import absolute_import
@@ -41,20 +36,33 @@ def _safe_reindex(obj):
             logger.warning("[senaite.patient] Reindex fallback failed: %r", e)
 
 
+def _normalize_mrn(value):
+    """Ensure MRN is always a unicode string (never dict)."""
+    if not value:
+        return u""
+    # if dict payload from ReferenceWidget
+    if isinstance(value, dict):
+        for key in ("mrn", "MRN", "value", "text", "label", "title", "Title"):
+            v = value.get(key)
+            if isinstance(v, basestring) and v.strip():
+                return api.safe_unicode(v.strip())
+        return u""
+    if isinstance(value, basestring):
+        return api.safe_unicode(value.strip())
+    return api.safe_unicode(str(value))
+
+
 @check_installed(None)
 def on_object_created(instance, event):
     """Event handler when a sample was created"""
     patient = update_patient(instance)
-
     if not patient:
         return
 
-    # append patient email to sample CC emails
     if patient.getEmailReport():
         email = patient.getEmail()
         add_cc_email(instance, email)
 
-    # share patient with sample's client users if necessary
     reg_key = "senaite.patient.share_patients"
     if api.get_registry_record(reg_key, default=False):
         client_uid = api.get_uid(instance.getClient())
@@ -86,21 +94,13 @@ def add_cc_email(sample, email):
 
 
 def update_patient(instance):
-    """Update or create Patient object for a given Analysis Request.
-
-    Tolerant to non-AR objects (e.g. RequestContainer in add form).
-    """
+    """Update or create Patient object for a given Analysis Request."""
     if not hasattr(instance, "getField"):
         return None
 
-    # obtain MRN directly from field
-    mrn = None
+    # normalize MRN
     field = instance.getField("MedicalRecordNumber") if hasattr(instance, "getField") else None
-    if field:
-        try:
-            mrn = field.get(instance)
-        except Exception:
-            mrn = None
+    mrn = _normalize_mrn(field.get(instance) if field else None)
 
     if not mrn:
         return None
@@ -123,7 +123,7 @@ def update_patient(instance):
 
         logger.info("Creating new Patient in '{}' with MRN: '{}'"
                     .format(api.get_path(container), mrn))
-        values = get_patient_fields(instance)
+        values = get_patient_fields(instance, mrn)
         try:
             patient = api.create(container, "Patient")
             patient_api.update_patient(patient, **values)
@@ -135,15 +135,9 @@ def update_patient(instance):
     return patient
 
 
-def get_patient_fields(instance):
+def get_patient_fields(instance, mrn=None):
     """Extract the patient fields from the sample"""
-    mrn = None
-    field = instance.getField("MedicalRecordNumber") if hasattr(instance, "getField") else None
-    if field:
-        try:
-            mrn = field.get(instance)
-        except Exception:
-            mrn = None
+    mrn = _normalize_mrn(mrn)
 
     sex = instance.getField("Sex").get(instance)
     gender = instance.getField("Gender").get(instance)
@@ -152,7 +146,6 @@ def get_patient_fields(instance):
     estimated = dob_field.get_estimated(instance)
     address = instance.getField("PatientAddress").get(instance)
 
-    # 4 fields full name
     firstname = getattr(instance, "getFirstName", lambda x=None: "")(instance)
     middlename = getattr(instance, "getMiddleName", lambda x=None: "")(instance)
     lastname = getattr(instance, "getLastName", lambda x=None: "")(instance)
@@ -165,7 +158,7 @@ def get_patient_fields(instance):
         }
 
     return {
-        "mrn": api.safe_unicode(mrn),
+        "mrn": mrn,
         "sex": sex,
         "gender": gender,
         "birthdate": birthdate,
@@ -179,10 +172,7 @@ def get_patient_fields(instance):
 
 
 def update_results_ranges(sample):
-    """Re-assigns the values of the results ranges for analyses, so dynamic
-    specifications are re-calculated when patient values such as sex and date
-    of birth are updated
-    """
+    """Re-assigns results ranges when patient values change"""
     spec = sample.getSpecification()
     if spec:
         ranges = spec.getResultsRange()
