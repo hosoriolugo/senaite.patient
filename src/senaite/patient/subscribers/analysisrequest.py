@@ -8,12 +8,13 @@
 #
 # SENAITE.PATIENT is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-# General Public License for more details.
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
 #
 # ------------------------------------------------------------------------
 # Subscribers for Analysis Requests
-# Adjusted to reindex MRN/Patient safely and tolerate RequestContainer
+# Final adjusted version: always use field "MedicalRecordNumber" and
+# the 4-part fullname fields. Removed reliance on getMedicalRecordNumberValue()
 # ------------------------------------------------------------------------
 
 from __future__ import absolute_import
@@ -48,10 +49,12 @@ def on_object_created(instance, event):
     if not patient:
         return
 
+    # append patient email to sample CC emails
     if patient.getEmailReport():
         email = patient.getEmail()
         add_cc_email(instance, email)
 
+    # share patient with sample's client users if necessary
     reg_key = "senaite.patient.share_patients"
     if api.get_registry_record(reg_key, default=False):
         client_uid = api.get_uid(instance.getClient())
@@ -87,17 +90,17 @@ def update_patient(instance):
 
     Tolerant to non-AR objects (e.g. RequestContainer in add form).
     """
-    # skip invalid instances (e.g. RequestContainer)
     if not hasattr(instance, "getField"):
         return None
 
-    # obtain MRN safely
-    mrn_getter = getattr(instance, "getMedicalRecordNumberValue", None)
-    if callable(mrn_getter):
-        mrn = mrn_getter()
-    else:
-        field = instance.getField("MedicalRecordNumber") if hasattr(instance, "getField") else None
-        mrn = field.get(instance) if field else None
+    # obtain MRN directly from field
+    mrn = None
+    field = instance.getField("MedicalRecordNumber") if hasattr(instance, "getField") else None
+    if field:
+        try:
+            mrn = field.get(instance)
+        except Exception:
+            mrn = None
 
     if not mrn:
         return None
@@ -134,8 +137,13 @@ def update_patient(instance):
 
 def get_patient_fields(instance):
     """Extract the patient fields from the sample"""
-    mrn_getter = getattr(instance, "getMedicalRecordNumberValue", None)
-    mrn = mrn_getter() if callable(mrn_getter) else None
+    mrn = None
+    field = instance.getField("MedicalRecordNumber") if hasattr(instance, "getField") else None
+    if field:
+        try:
+            mrn = field.get(instance)
+        except Exception:
+            mrn = None
 
     sex = instance.getField("Sex").get(instance)
     gender = instance.getField("Gender").get(instance)
@@ -157,7 +165,7 @@ def get_patient_fields(instance):
         }
 
     return {
-        "mrn": mrn,
+        "mrn": api.safe_unicode(mrn),
         "sex": sex,
         "gender": gender,
         "birthdate": birthdate,
