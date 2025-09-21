@@ -121,6 +121,9 @@ class SamplesListingAdapter(object):
     @check_installed(None)
     def folder_item(self, obj, item, index):
         """Inyecta MRN y nombre del paciente a cada fila del listing."""
+        # Log para depuración
+        print("=== Processing object: {} ===".format(obj.getId()))
+        
         if self.show_icon_temp_mrn and getattr(obj, "isMedicalRecordTemporary", False):
             after_icons = item["after"].get("getId", "")
             kwargs = {"width": 16, "title": _("Temporary MRN")}
@@ -132,13 +135,17 @@ class SamplesListingAdapter(object):
 
         # 1) MRN desde el campo (NO getMedicalRecordNumberValue)
         mrn = _get_mrn_from_obj(obj)
+        print("MRN from object field: {}".format(mrn))
 
         # 2) Paciente desde el AR
         patient = getattr(obj, "getPatient", lambda: None)()
+        print("Patient from getPatient(): {}".format(patient))
 
         # 3) Si no hay paciente pero hay MRN, buscar paciente por MRN
         if not patient and mrn:
+            print("Searching patient by MRN: {}".format(mrn))
             patient = self.get_patient_by_mrn(mrn)
+            print("Patient found by MRN: {}".format(patient))
 
         # 4) Si no hay MRN pero hay paciente, obtener MRN del paciente
         if not mrn and patient:
@@ -146,6 +153,7 @@ class SamplesListingAdapter(object):
                 getattr(patient, "mrn", None) or
                 getattr(patient, "MedicalRecordNumber", None)
             )
+            print("MRN from patient: {}".format(mrn))
 
         item["MRN"] = mrn
 
@@ -157,19 +165,26 @@ class SamplesListingAdapter(object):
                 if callable(acc):
                     try:
                         fullname = _normalize_value(acc())
+                        print("Fullname from {}: {}".format(key, fullname))
                         break
-                    except Exception:
+                    except Exception as e:
+                        print("Error getting fullname from {}: {}".format(key, e))
                         continue
                 elif isinstance(acc, basestring):
                     fullname = _normalize_value(acc)
+                    print("Fullname from string: {}".format(fullname))
                     break
 
             if not fullname:
                 # Construcción por partes
                 parts = []
                 for fld in ("firstname", "middlename", "lastname", "maternal_lastname"):
-                    parts.append(_normalize_value(getattr(patient, fld, None)))
+                    part_val = getattr(patient, fld, None)
+                    normalized_val = _normalize_value(part_val)
+                    parts.append(normalized_val)
+                    print("Part {}: {}".format(fld, normalized_val))
                 fullname = u" ".join([p for p in parts if p])
+                print("Constructed fullname: {}".format(fullname))
 
         item["Patient"] = fullname if fullname else _("No patient")
 
@@ -178,7 +193,9 @@ class SamplesListingAdapter(object):
             patient_url = api.get_url(patient)
             item["replace"]["MRN"] = get_link(patient_url, mrn)
             item["replace"]["Patient"] = get_link(patient_url, item["Patient"])
+            print("Added links for patient: {}".format(patient_url))
 
+        print("Final MRN: {}, Patient: {}".format(item["MRN"], item["Patient"]))
         return item
 
     @viewcache
@@ -187,7 +204,14 @@ class SamplesListingAdapter(object):
             return None
         if self.is_patient_context():
             return self.context
-        return get_patient_by_mrn(mrn)
+        try:
+            print("Calling get_patient_by_mrn with MRN: {}".format(mrn))
+            patient = get_patient_by_mrn(mrn)
+            print("Found patient: {}".format(patient))
+            return patient
+        except Exception as e:
+            print("Error in get_patient_by_mrn: {}".format(e))
+            return None
 
     @check_installed(None)
     def before_render(self):
