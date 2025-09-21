@@ -24,59 +24,74 @@ from senaite.patient import api as patient_api
 from senaite.patient import check_installed
 from senaite.patient import logger
 
-# Para filtrar eventos de modificación de contenedores temporales
+# Eventos para filtrar o reconocer
 try:
     from zope.container.interfaces import IContainerModifiedEvent
 except Exception:
-    IContainerModifiedEvent = None  # compatibilidad
+    IContainerModifiedEvent = None
 
-# Detección robusta de AnalysisRequest sin romper compatibilidad
+try:
+    from zope.lifecycleevent.interfaces import IObjectInitializedEvent, IObjectModifiedEvent
+except Exception:
+    IObjectInitializedEvent = None
+    IObjectModifiedEvent = None
+
+
+def _unwrap(obj):
+    """Devuelve el objeto real (sin wrappers de adquisición como RequestContainer)."""
+    # 1) API de senaite/bika si existe
+    try:
+        real = api.get_object(obj)
+        if real is not None:
+            return real
+    except Exception:
+        pass
+    # 2) Adquisición clásica
+    try:
+        from Acquisition import aq_inner, aq_base
+        return aq_base(aq_inner(obj))
+    except Exception:
+        return obj
+
+
 def _is_analysis_request(obj):
-    """Devuelve True si obj es realmente un AnalysisRequest.
-
-    Intentamos usar la interfaz oficial (si existe en este entorno).
-    Si no está disponible, caemos a una verificación por atributos
-    que solo tienen los AR reales.
-    """
+    """True si el objeto (desenvuelto) es un AnalysisRequest."""
+    o = _unwrap(obj)
+    # Vía interfaz “oficial”, si está presente en este entorno
     try:
         from bika.lims.interfaces import IAnalysisRequest
-        from zope.interface import providedBy
-        return IAnalysisRequest.providedBy(obj)
+        return IAnalysisRequest.providedBy(o)
     except Exception:
+        # Fallback por atributos característicos del AR
         return (
-            hasattr(obj, "isMedicalRecordTemporary") and
-            hasattr(obj, "getMedicalRecordNumberValue") and
-            hasattr(obj, "getSpecification")
+            hasattr(o, "isMedicalRecordTemporary") and
+            hasattr(o, "getMedicalRecordNumberValue") and
+            hasattr(o, "getSpecification")
         )
 
 
 @check_installed(None)
 def on_object_created(instance, event):
-    """Event handler when a sample was created
-    """
-    # Evita ejecutar la lógica sobre objetos temporales/no-AR
+    """Se crea un AR (sample)."""
+    instance = _unwrap(instance)
     if not _is_analysis_request(instance):
         return
 
     patient = update_patient(instance)
 
-    # no patient created when the MRN is temporary
     if not patient:
         return
 
-    # append patient email to sample CC emails
+    # Añadir email del paciente a CC si aplica
     if patient.getEmailReport():
         email = patient.getEmail()
         add_cc_email(instance, email)
 
-    # share patient with sample's client users if necessary
+    # Compartir paciente con usuarios del cliente si está habilitado
     reg_key = "senaite.patient.share_patients"
     if api.get_registry_record(reg_key, default=False):
         client_uid = api.get_uid(instance.getClient())
         behavior = IClientShareableBehavior(patient)
-        # Note we get Raw clients because if current user is a Client, she/he
-        # does not have enough privileges to wake-up clients other than the one
-        # she/he belongs to. Still, we need to keep the rest of shared clients
         client_uids = behavior.getRawClients() or []
         if client_uid not in client_uids:
             client_uids.append(client_uid)
@@ -85,65 +100,59 @@ def on_object_created(instance, event):
 
 @check_installed(None)
 def on_object_edited(instance, event):
-    """Event handler when a sample was edited
-    """
-    # Ignora modificaciones de contenedores (p.ej. durante copy/construct)
+    """Se edita un AR (sample)."""
+    # Ignorar modificaciones de contenedores (ruido de creación/copia)
     if IContainerModifiedEvent is not None and IContainerModifiedEvent.providedBy(event):
         return
 
-    # Evita ejecutar la lógica sobre objetos temporales/no-AR
+    # El evento puede ser IObjectInitializedEvent (como en tu log) o IObjectModifiedEvent;
+    # en ambos casos necesitamos el objeto real, no el RequestContainer.
+    instance = _unwrap(instance)
     if not _is_analysis_request(instance):
         return
 
     update_patient(instance)
-    # update results ranges so dynamic specs are recalculated
     update_results_ranges(instance)
 
 
 def add_cc_email(sample, email):
-    """add CC email recipient to sample
-    """
-    # get existing CC emails
     emails = sample.getCCEmails().split(",")
-    # nothing to do
     if email in emails:
         return
     emails.append(email)
-    # remove whitespaces
     emails = map(lambda e: e.strip(), emails)
     sample.setCCEmails(",".join(emails))
 
 
 def update_patient(instance):
-    # Evita fallos si llega un RequestContainer u otro objeto temporal
+    """Mantiene la lógica nativa, pero blindada contra wrappers."""
+    instance = _unwrap(instance)
     if not _is_analysis_request(instance):
         return None
 
-    if instance.isMedicalRecordTemporary():
+    # Algunos wrappers no exponen el método; evitamos el AttributeError
+    try:
+        if instance.isMedicalRecordTemporary():
+            return None
+    except AttributeError:
         return None
 
     mrn = instance.getMedicalRecordNumberValue()
-    # Allow empty value when patients are not required for samples
     if mrn is None:
         return None
 
     patient = patient_api.get_patient_by_mrn(mrn, include_inactive=True)
 
-    # Create a new patient
     if patient is None:
         if patient_api.is_patient_allowed_in_client():
-            # create the patient in the client
             container = instance.getClient()
         else:
-            # create the patient in the global patients folder
             container = patient_api.get_patient_folder()
 
-        # check if the user is allowed to add a new patient
         if not patient_api.is_patient_creation_allowed(container):
             return None
 
-        logger.info("Creating new Patient in '{}' with MRN: '{}'"
-                    .format(api.get_path(container), mrn))
+        logger.info("Creating new Patient in '{}' with MRN: '{}'".format(api.get_path(container), mrn))
         values = get_patient_fields(instance)
         try:
             patient = api.create(container, "Patient")
@@ -156,8 +165,7 @@ def update_patient(instance):
 
 
 def get_patient_fields(instance):
-    """Extract the patient fields from the sample
-    """
+    instance = _unwrap(instance)
     mrn = instance.getMedicalRecordNumberValue()
     sex = instance.getField("Sex").get(instance)
     gender = instance.getField("Gender").get(instance)
@@ -171,10 +179,7 @@ def get_patient_fields(instance):
     lastname = field.get_lastname(instance)
 
     if address:
-        address = {
-            "type": "physical",
-            "address": api.safe_unicode(address),
-        }
+        address = {"type": "physical", "address": api.safe_unicode(address)}
 
     return {
         "mrn": mrn,
@@ -190,11 +195,7 @@ def get_patient_fields(instance):
 
 
 def update_results_ranges(sample):
-    """Re-assigns the values of the results ranges for analyses, so dynamic
-    specifications are re-calculated when patient values such as sex and date
-    of birth are updated
-    """
-    # reset the result ranges so dynamic specs are grabbed again
+    sample = _unwrap(sample)
     spec = sample.getSpecification()
     if spec:
         ranges = spec.getResultsRange()
