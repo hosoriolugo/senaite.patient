@@ -34,10 +34,29 @@ except NameError:
 
 
 def _s(v):
-    try:
-        return api.safe_unicode(v) if v is not None else u""
-    except Exception:
+    """Unicode seguro desde cualquier tipo “raro”.
+
+    - None -> u""
+    - dict -> u"" (evita .strip sobre dicts durante el rebuild)
+    - list/tuple/set -> join seguro de sus items
+    - demás -> api.safe_unicode(v) o repr(v) como último recurso
+    """
+    if v is None:
         return u""
+    if isinstance(v, dict):
+        return u""
+    if isinstance(v, (list, tuple, set)):
+        try:
+            return u" ".join([_s(x) for x in v if x is not None])
+        except Exception:
+            return u""
+    try:
+        return api.safe_unicode(v)
+    except Exception:
+        try:
+            return api.safe_unicode(repr(v))
+        except Exception:
+            return u""
 
 
 def _get_attr(obj, name):
@@ -68,15 +87,13 @@ def medical_record_number(instance):
     patient = _get_patient(instance)
     if patient is not None:
         for attr in ("getMRN", "mrn", "getMedicalRecordNumber", "MedicalRecordNumber"):
-            mrn = _get_attr(patient, attr)
-            mrn = _s(mrn).strip()
+            mrn = _s(_get_attr(patient, attr)).strip()
             if mrn:
                 return [mrn]
 
     # 2) Intentar desde el AR (AT/DX/legacy)
     for attr in ("getMedicalRecordNumber", "MedicalRecordNumber", "medical_record_number"):
-        mrn = _get_attr(instance, attr)
-        mrn = _s(mrn).strip()
+        mrn = _s(_get_attr(instance, attr)).strip()
         if mrn:
             return [mrn]
 
@@ -90,16 +107,14 @@ def medical_record_number(instance):
 def getMedicalRecordNumberValue(instance):
     # 1) MRN guardado en el propio AR (cubre variantes)
     for attr in ("getMedicalRecordNumber", "MedicalRecordNumber", "medical_record_number"):
-        v = _get_attr(instance, attr)
-        v = _s(v).strip()
+        v = _s(_get_attr(instance, attr)).strip()
         if v:
             return v or None
     # 2) MRN desde el Paciente (cubre variantes)
     patient = _get_patient(instance)
     if patient:
         for attr in ("getMedicalRecordNumber", "MedicalRecordNumber", "mrn", "patient_mrn"):
-            v = _get_attr(patient, attr)
-            v = _s(v).strip()
+            v = _s(_get_attr(patient, attr)).strip()
             if v:
                 return v or None
     return None
@@ -115,15 +130,13 @@ def getPatientFullName(instance):
     patient = _get_patient(instance)
     if patient is not None:
         for attr in ("getFullname", "getPatientFullName", "PatientFullName", "patient_fullname"):
-            name = _get_attr(patient, attr)
-            name = _s(name).strip()
+            name = _s(_get_attr(patient, attr)).strip()
             if name:
                 return name
 
     # 2) Desde el AR (AT/DX/legacy)
     for attr in ("getPatientFullName", "PatientFullName", "patient_fullname"):
-        name = _get_attr(instance, attr)
-        name = _s(name).strip()
+        name = _s(_get_attr(instance, attr)).strip()
         if name:
             return name
 
@@ -165,34 +178,34 @@ class ListingSearchableTextProvider(object):
         patient = _get_patient(self.context)
 
         # MRN (Patient primero; luego variantes en AR)
-        mrn = u""
+        mrn_val = None
         if patient is not None:
             for attr in ("getMRN", "mrn", "getMedicalRecordNumber", "MedicalRecordNumber"):
-                mrn = _get_attr(patient, attr)
-                if mrn:
+                mrn_val = _get_attr(patient, attr)
+                if mrn_val:
                     break
-        if not mrn:
+        if not mrn_val:
             for attr in ("getMedicalRecordNumber", "MedicalRecordNumber", "medical_record_number"):
-                mrn = _get_attr(self.context, attr)
-                if mrn:
+                mrn_val = _get_attr(self.context, attr)
+                if mrn_val:
                     break
-        mrn = _s(mrn).strip()
+        mrn = _s(mrn_val).strip()
         if mrn:
             tokens.append(mrn)
 
         # Nombre (Patient primero; luego variantes en AR)
-        name = u""
+        name_val = None
         if patient is not None:
             for attr in ("getFullname", "getPatientFullName", "PatientFullName", "patient_fullname"):
-                name = _get_attr(patient, attr)
-                if name:
+                name_val = _get_attr(patient, attr)
+                if name_val:
                     break
-        if not name:
+        if not name_val:
             for attr in ("getPatientFullName", "PatientFullName", "patient_fullname"):
-                name = _get_attr(self.context, attr)
-                if name:
+                name_val = _get_attr(self.context, attr)
+                if name_val:
                     break
-        name = _s(name).strip()
+        name = _s(name_val).strip()
         if name:
             tokens.append(name)
 
