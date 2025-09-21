@@ -629,27 +629,25 @@ class Patient(Container):
 
         mutator(self, api.safe_unicode(value.strip()))
 
+        @security.protected(permissions.View)
+    def getFullname(self):
+        """Full name built from 4 parts: firstname, middlename, lastname, maternal_lastname."""
+        parts = []
+        for fname in ("firstname", "middlename", "lastname", "maternal_lastname"):
+            try:
+                accessor = self.accessor(fname)
+                raw = accessor(self) or u""
+            except Exception:
+                raw = u""
+            txt = api.safe_unicode(raw).strip()
+            if txt:
+                parts.append(txt)
+        return u" ".join(parts)
+
     @security.protected(permissions.View)
-def getFullname(self):
-    """Nombre completo en 4 partes: firstname, middlename, lastname, maternal_lastname.
+    def getPatientFullName(self):
+        return self.getFullname()
 
-    Se usan accessors de campo y api.safe_unicode para devolver unicode.
-    """
-    parts = []
-    for fname in ("firstname", "middlename", "lastname", "maternal_lastname"):
-        try:
-            accessor = self.accessor(fname)
-            raw = accessor(self) or u""
-        except Exception:
-            raw = u""
-        txt = api.safe_unicode(raw).strip()
-        if txt:
-            parts.append(txt)
-    return u" ".join(parts)
-
-@security.protected(permissions.View)
-def getPatientFullName(self):
-    return self.getFullname()
 
     ###
     # EMAIL AND PHONE
