@@ -24,6 +24,7 @@ from archetypes.schemaextender.interfaces import ISchemaModifier
 from bika.lims.browser.widgets import SelectionWidget
 from bika.lims.interfaces import IAnalysisRequest
 from Products.Archetypes.Widget import TextAreaWidget
+from Products.Archetypes.Widget import StringWidget  # ⬅️ añadido
 from Products.CMFCore.permissions import View
 from senaite.patient import messageFactory as _
 from senaite.patient.api import get_patient_name_entry_mode
@@ -201,6 +202,43 @@ GenderField = ExtStringField(
     ),
 )
 
+# ---------------------------
+# Campos adicionales (nuevos)
+# ---------------------------
+PatientWeightField = ExtStringField(
+    "PatientWeight",
+    required=False,
+    default="",
+    read_permission=View,
+    write_permission=FieldEditAddress,  # reutilizamos permiso existente de edición
+    widget=StringWidget(
+        label=_("Patient weight (kg)"),
+        description=_("Ingrese el peso del paciente en kilogramos"),
+        size=10,
+        render_own_label=True,
+        visible={
+            "add": "edit",
+        },
+    ),
+)
+
+RoomNumberField = ExtStringField(
+    "RoomNumber",
+    required=False,
+    default="",
+    read_permission=View,
+    write_permission=FieldEditAddress,
+    widget=StringWidget(
+        label=_("Room #"),
+        description=_("Nro. Habitación/Nro. de cama"),
+        size=12,
+        render_own_label=True,
+        visible={
+            "add": "edit",
+        },
+    ),
+)
+# ------ fin nuevos campos -----
 
 @implementer(IOrderableSchemaExtender, IBrowserLayerAwareExtender)
 class AnalysisRequestSchemaExtender(object):
@@ -223,6 +261,9 @@ class AnalysisRequestSchemaExtender(object):
             dob_field,
             SexField,
             GenderField,
+            # ⬇️ añadidos para que se muestren
+            PatientWeightField,
+            RoomNumberField,
         ]
 
 
