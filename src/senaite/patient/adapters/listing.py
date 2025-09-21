@@ -121,8 +121,9 @@ class SamplesListingAdapter(object):
     @check_installed(None)
     def folder_item(self, obj, item, index):
         """Inyecta MRN y nombre del paciente a cada fila del listing."""
-        # Log para depuración
+        # Debug info
         print("=== Processing object: {} ===".format(obj.getId()))
+        print("Object type: {}".format(type(obj)))
         
         if self.show_icon_temp_mrn and getattr(obj, "isMedicalRecordTemporary", False):
             after_icons = item["after"].get("getId", "")
@@ -137,9 +138,17 @@ class SamplesListingAdapter(object):
         mrn = _get_mrn_from_obj(obj)
         print("MRN from object field: {}".format(mrn))
 
-        # 2) Paciente desde el AR
-        patient = getattr(obj, "getPatient", lambda: None)()
-        print("Patient from getPatient(): {}".format(patient))
+        # 2) Paciente desde el AR - CORRECCIÓN DEL ERROR
+        patient = None
+        get_patient_attr = getattr(obj, "getPatient", None)
+        if callable(get_patient_attr):
+            try:
+                patient = get_patient_attr()
+                print("Patient from getPatient(): {}".format(patient))
+            except Exception as e:
+                print("Error calling getPatient(): {}".format(e))
+        else:
+            print("getPatient is not callable, it's a: {}".format(type(get_patient_attr)))
 
         # 3) Si no hay paciente pero hay MRN, buscar paciente por MRN
         if not patient and mrn:
