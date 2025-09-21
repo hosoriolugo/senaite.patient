@@ -1,22 +1,15 @@
-<?xml version="1.0"?>
 <configure
     xmlns="http://namespaces.zope.org/zope"
     i18n_domain="senaite.patient">
 
-  <!-- Necesario para que funcionen los @indexer y la sintaxis corta de <adapter> -->
-  <include package="plone.indexer" file="meta.zcml" />
+  <!-- Sample (aka AnalysisRequest) index adapters -->
+  <adapter name="is_temporary_mrn" factory=".sample.is_temporary_mrn"/>
+  <adapter name="medical_record_number" factory=".sample.medical_record_number"/>
+  <!-- NUEVO: provee el valor para el índice FieldIndex getPatientFullName -->
+  <adapter name="getPatientFullName" factory=".sample.getPatientFullName"/>
 
-  <!-- Sample (AnalysisRequest) indexers -->
-  <adapter name="is_temporary_mrn" factory=".sample.is_temporary_mrn" />
-  <adapter name="medical_record_number" factory=".sample.medical_record_number" />
-  <adapter name="getPatientFullName" factory=".sample.getPatientFullName" />
-
-  <!-- NUEVOS: lo que usa el listado para pintar MRN y para enlazar paciente -->
-  <adapter name="getMedicalRecordNumberValue" factory=".sample.getMedicalRecordNumberValue" />
-  <adapter name="getPatientUID" factory=".sample.getPatientUID" />
-
-  <!-- Tokens extra para listing_searchable_text (clase ya decorada con @adapter/@implementer) -->
-  <adapter factory=".sample.ListingSearchableTextProvider" />
+  <!-- Extra tokens para listing_searchable_text -->
+  <adapter factory=".sample.ListingSearchableTextProvider"/>
 
   <!-- Patient indexers (catálogo de pacientes) -->
   <adapter name="patient_mrn" factory=".patient.patient_mrn" />
