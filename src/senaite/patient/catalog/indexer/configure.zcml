@@ -3,13 +3,19 @@
     xmlns="http://namespaces.zope.org/zope"
     i18n_domain="senaite.patient">
 
+  <!-- Necesario para que funcionen los @indexer y la sintaxis corta de <adapter> -->
+  <include package="plone.indexer" file="meta.zcml" />
+
   <!-- Sample (AnalysisRequest) indexers -->
   <adapter name="is_temporary_mrn" factory=".sample.is_temporary_mrn" />
   <adapter name="medical_record_number" factory=".sample.medical_record_number" />
-  <!-- Corregido: nombre correcto del índice -->
   <adapter name="getPatientFullName" factory=".sample.getPatientFullName" />
 
-  <!-- Tokens extra para listing_searchable_text -->
+  <!-- NUEVOS: lo que usa el listado para pintar MRN y para enlazar paciente -->
+  <adapter name="getMedicalRecordNumberValue" factory=".sample.getMedicalRecordNumberValue" />
+  <adapter name="getPatientUID" factory=".sample.getPatientUID" />
+
+  <!-- Tokens extra para listing_searchable_text (clase ya decorada con @adapter/@implementer) -->
   <adapter factory=".sample.ListingSearchableTextProvider" />
 
   <!-- Patient indexers (catálogo de pacientes) -->
