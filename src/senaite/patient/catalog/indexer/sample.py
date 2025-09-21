@@ -23,6 +23,7 @@ from bika.lims.interfaces import IAnalysisRequest
 from bika.lims.interfaces import IListingSearchableTextProvider
 from plone.indexer import indexer
 from senaite.core.interfaces import ISampleCatalog
+from senaite.core.interfaces.analysis import IRequestAnalysis  # <-- soporte 2.6+
 from senaite.patient.interfaces import ISenaitePatientLayer
 from zope.component import adapter
 from zope.interface import implementer
@@ -40,10 +41,16 @@ def _s(v):
         return u""
 
 
+def _get_attr(obj, name):
+    if not obj:
+        return None
+    v = getattr(obj, name, None)
+    return v() if callable(v) else v
+
+
 def _get_patient(ar):
     """Usa SOLO el método/campo actual para obtener el paciente desde el AR."""
-    getter = getattr(ar, "getPatient", None)
-    return getter() if callable(getter) else None
+    return _get_attr(ar, "getPatient")
 
 
 @indexer(IAnalysisRequest)
@@ -52,6 +59,9 @@ def is_temporary_mrn(instance):
     return bool(getattr(instance, "is_temporary_mrn", False))
 
 
+# ---------------------------------------------------------------------------
+# Index legacy 'medical_record_number' (KeywordIndex) que ya tenías
+# ---------------------------------------------------------------------------
 @indexer(IAnalysisRequest)
 def medical_record_number(instance):
     """
@@ -62,7 +72,7 @@ def medical_record_number(instance):
     patient = _get_patient(instance)
     if patient is not None:
         # Usar el método getMRN del paciente si existe
-        if hasattr(patient, 'getMRN'):
+        if hasattr(patient, "getMRN"):
             mrn = patient.getMRN()
             if mrn:
                 return [mrn]
@@ -80,6 +90,34 @@ def medical_record_number(instance):
     return [mrn] if mrn else []
 
 
+# ---------------------------------------------------------------------------
+# NUEVO: getMedicalRecordNumberValue (lo que pinta la columna MRN en listado)
+# ---------------------------------------------------------------------------
+@indexer(IAnalysisRequest)
+def getMedicalRecordNumberValue(instance):
+    # 1) MRN guardado en el propio AR (cubre variantes)
+    for attr in ("getMedicalRecordNumber", "MedicalRecordNumber", "medical_record_number"):
+        v = _get_attr(instance, attr)
+        if v:
+            return api.safe_unicode(v).strip() or None
+    # 2) MRN desde Paciente (cubre variantes)
+    patient = _get_patient(instance)
+    if patient:
+        for attr in ("getMedicalRecordNumber", "MedicalRecordNumber", "mrn", "patient_mrn"):
+            v = _get_attr(patient, attr)
+            if v:
+                return api.safe_unicode(v).strip() or None
+    return None
+
+
+@indexer(IRequestAnalysis)
+def getMedicalRecordNumberValue__IRequestAnalysis(instance):
+    return getMedicalRecordNumberValue(instance)
+
+
+# ---------------------------------------------------------------------------
+# getPatientFullName (FieldIndex) – tu versión, con mismos comportamientos
+# ---------------------------------------------------------------------------
 @indexer(IAnalysisRequest)
 def getPatientFullName(instance):
     """
@@ -90,7 +128,7 @@ def getPatientFullName(instance):
     patient = _get_patient(instance)
     if patient is not None:
         # Usar el método getFullname del paciente si existe
-        if hasattr(patient, 'getFullname'):
+        if hasattr(patient, "getFullname"):
             name = patient.getFullname()
             if name:
                 return _s(name).strip()
@@ -106,6 +144,35 @@ def getPatientFullName(instance):
     return _s(name).strip()
 
 
+@indexer(IRequestAnalysis)
+def getPatientFullName__IRequestAnalysis(instance):
+    return getPatientFullName(instance)
+
+
+# ---------------------------------------------------------------------------
+# NUEVO: getPatientUID (útil para filtros, joins y diagnóstico)
+# ---------------------------------------------------------------------------
+@indexer(IAnalysisRequest)
+def getPatientUID(instance):
+    patient = _get_patient(instance)
+    if not patient:
+        return None
+    if hasattr(patient, "UID"):
+        return patient.UID()
+    # a veces getPatient devuelve un UID (string)
+    if isinstance(patient, basestring) and len(patient) >= 32:
+        return patient
+    return None
+
+
+@indexer(IRequestAnalysis)
+def getPatientUID__IRequestAnalysis(instance):
+    return getPatientUID(instance)
+
+
+# ---------------------------------------------------------------------------
+# listing_searchable_text: añade MRN y nombre del paciente a los tokens
+# ---------------------------------------------------------------------------
 @adapter(IAnalysisRequest, ISenaitePatientLayer, ISampleCatalog)
 @implementer(IListingSearchableTextProvider)
 class ListingSearchableTextProvider(object):
@@ -121,23 +188,23 @@ class ListingSearchableTextProvider(object):
 
         # Primero intentar obtener del paciente vinculado
         patient = _get_patient(self.context)
-        
+
         # MRN: priorizar paciente vinculado
         mrn = u""
         if patient is not None:
             # Usar el método getMRN del paciente si existe
-            if hasattr(patient, 'getMRN'):
+            if hasattr(patient, "getMRN"):
                 mrn = patient.getMRN()
             # Fallback a atributo directo
             if not mrn:
                 mrn = getattr(patient, "mrn", u"")
-        
+
         # Si no hay MRN del paciente, intentar del AR
         if not mrn:
             mrn = getattr(self.context, "medical_record_number", u"")
             if callable(mrn):
                 mrn = mrn()
-        
+
         mrn = _s(mrn).strip()
         if mrn:
             tokens.append(mrn)
@@ -146,18 +213,18 @@ class ListingSearchableTextProvider(object):
         name = u""
         if patient is not None:
             # Usar el método getFullname del paciente si existe
-            if hasattr(patient, 'getFullname'):
+            if hasattr(patient, "getFullname"):
                 name = patient.getFullname()
             # Fallback a atributo directo
             if not name:
                 name = getattr(patient, "patient_fullname", u"")
-        
+
         # Si no hay nombre del paciente, intentar del AR
         if not name:
             name = getattr(self.context, "patient_fullname", u"")
             if callable(name):
                 name = name()
-        
+
         name = _s(name).strip()
         if name:
             tokens.append(name)
