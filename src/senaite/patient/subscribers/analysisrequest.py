@@ -24,11 +24,40 @@ from senaite.patient import api as patient_api
 from senaite.patient import check_installed
 from senaite.patient import logger
 
+# Para filtrar eventos de modificación de contenedores temporales
+try:
+    from zope.container.interfaces import IContainerModifiedEvent
+except Exception:
+    IContainerModifiedEvent = None  # compatibilidad
+
+# Detección robusta de AnalysisRequest sin romper compatibilidad
+def _is_analysis_request(obj):
+    """Devuelve True si obj es realmente un AnalysisRequest.
+
+    Intentamos usar la interfaz oficial (si existe en este entorno).
+    Si no está disponible, caemos a una verificación por atributos
+    que solo tienen los AR reales.
+    """
+    try:
+        from bika.lims.interfaces import IAnalysisRequest
+        from zope.interface import providedBy
+        return IAnalysisRequest.providedBy(obj)
+    except Exception:
+        return (
+            hasattr(obj, "isMedicalRecordTemporary") and
+            hasattr(obj, "getMedicalRecordNumberValue") and
+            hasattr(obj, "getSpecification")
+        )
+
 
 @check_installed(None)
 def on_object_created(instance, event):
     """Event handler when a sample was created
     """
+    # Evita ejecutar la lógica sobre objetos temporales/no-AR
+    if not _is_analysis_request(instance):
+        return
+
     patient = update_patient(instance)
 
     # no patient created when the MRN is temporary
@@ -58,6 +87,14 @@ def on_object_created(instance, event):
 def on_object_edited(instance, event):
     """Event handler when a sample was edited
     """
+    # Ignora modificaciones de contenedores (p.ej. durante copy/construct)
+    if IContainerModifiedEvent is not None and IContainerModifiedEvent.providedBy(event):
+        return
+
+    # Evita ejecutar la lógica sobre objetos temporales/no-AR
+    if not _is_analysis_request(instance):
+        return
+
     update_patient(instance)
     # update results ranges so dynamic specs are recalculated
     update_results_ranges(instance)
@@ -78,13 +115,20 @@ def add_cc_email(sample, email):
 
 
 def update_patient(instance):
+    # Evita fallos si llega un RequestContainer u otro objeto temporal
+    if not _is_analysis_request(instance):
+        return None
+
     if instance.isMedicalRecordTemporary():
-        return
+        return None
+
     mrn = instance.getMedicalRecordNumberValue()
     # Allow empty value when patients are not required for samples
     if mrn is None:
-        return
+        return None
+
     patient = patient_api.get_patient_by_mrn(mrn, include_inactive=True)
+
     # Create a new patient
     if patient is None:
         if patient_api.is_patient_allowed_in_client():
