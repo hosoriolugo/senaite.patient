@@ -64,21 +64,6 @@ ADD_COLUMNS = [
 ]
 
 
-def _normalize_value(value):
-    """Normalize value to unicode string"""
-    if value is None:
-        return u""
-    if isinstance(value, dict):
-        for key in ("mrn", "MRN", "value", "text", "label", "title", "Title"):
-            v = value.get(key)
-            if v and isinstance(v, basestring) and v.strip():
-                return api.safe_unicode(v.strip())
-        return u""
-    if isinstance(value, basestring):
-        return api.safe_unicode(value.strip())
-    return api.safe_unicode(str(value))
-
-
 class SamplesListingAdapter(object):
     """Generic adapter for sample listings
     """
@@ -113,89 +98,80 @@ class SamplesListingAdapter(object):
 
     @check_installed(None)
     def folder_item(self, obj, item, index):
-        # Get the actual content object from the brain
-        # Brains don't have the methods we need to call
+        # Resolver brain -> objeto si es posible
         try:
             obj = api.get_object(obj)
         except Exception:
-            # If we can't get the object, use the brain as-is
             pass
 
-        if self.show_icon_temp_mrn and getattr(obj, "isMedicalRecordTemporary", False):
-            # Add an icon after the sample ID
+        # Icono MRN temporal (llamar si es método, o leer si es attr)
+        is_temp = False
+        try:
+            attr = getattr(obj, "isMedicalRecordTemporary", False)
+            is_temp = attr() if callable(attr) else bool(attr)
+        except Exception:
+            is_temp = False
+
+        if self.show_icon_temp_mrn and is_temp:
             after_icons = item["after"].get("getId", "")
             kwargs = {"width": 16, "title": _("Temporary MRN")}
             after_icons += self.icon_tag("id-card-red", **kwargs)
             item["after"].update({"getId": after_icons})
 
-        # Get MRN from object - robust approach
-        mrn = u""
-        if hasattr(obj, "getMedicalRecordNumberValue"):
-            try:
-                mrn = _normalize_value(obj.getMedicalRecordNumberValue())
-            except Exception:
-                # Try to get from catalog metadata if method call fails
-                mrn = getattr(obj, "medical_record_number", u"")
-                
-        # Get patient fullname from object - robust approach  
-        fullname = u""
-        if hasattr(obj, "getPatientFullName"):
-            try:
-                fullname = _normalize_value(obj.getPatientFullName())
-            except Exception:
-                # Try to get from catalog metadata if method call fails
-                fullname = getattr(obj, "getPatientFullName", u"")
+        # Leer valores nativos (siempre strings unicode)
+        sample_patient_mrn = u""
+        try:
+            sample_patient_mrn = api.safe_unicode(
+                obj.getMedicalRecordNumberValue()).strip()
+        except Exception:
+            sample_patient_mrn = u""
 
-        # Fallback: if no fullname, try to get from patient by MRN
-        if not fullname and mrn:
-            patient = self.get_patient_by_mrn(mrn)
-            if patient:
-                try:
-                    fullname = _normalize_value(patient.getFullname())
-                except Exception:
-                    pass
+        sample_patient_fullname = u""
+        try:
+            # En AR/Sample este método delega a Patient.getFullname()
+            sample_patient_fullname = api.safe_unicode(
+                obj.getPatientFullName()).strip()
+        except Exception:
+            sample_patient_fullname = u""
 
-        item["MRN"] = mrn
-        item["Patient"] = fullname or _("No patient")
+        item["MRN"] = sample_patient_mrn
+        item["Patient"] = sample_patient_fullname
 
-        # get the patient object
-        patient = self.get_patient_by_mrn(mrn)
+        # Obtener el objeto Paciente
+        patient = self.get_patient_by_mrn(sample_patient_mrn)
 
         if not patient:
-            # Add link if we have MRN but no patient object
-            if mrn:
-                item["replace"]["MRN"] = mrn
-            return item
+            return
 
-        # Link to patient object
+        # Link al paciente
         patient_url = api.get_url(patient)
-        if mrn:
-            item["replace"]["MRN"] = get_link(patient_url, mrn)
+        if sample_patient_mrn:
+            item["replace"]["MRN"] = get_link(patient_url, sample_patient_mrn)
 
+        # Comparaciones y link de Patient si coincide
         try:
-            patient_mrn = patient.getMRN()
-            patient_fullname = patient.getFullname()
+            patient_mrn = api.safe_unicode(patient.getMRN()).strip()
+            patient_fullname = api.safe_unicode(patient.getFullname()).strip()
 
-            # patient MRN is different
-            if mrn != patient_mrn:
+            if sample_patient_mrn != patient_mrn:
                 msg = _("Patient MRN of sample is not equal to %s")
                 val = api.safe_unicode(patient_mrn) or _("<no value>")
                 icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
                 item["after"]["MRN"] = self.icon_tag("info", **icon_args)
 
-            if fullname != patient_fullname:
+            if sample_patient_fullname != patient_fullname:
                 msg = _("Patient fullname of sample is not equal to %s")
                 val = api.safe_unicode(patient_fullname) or _("<no value>")
                 icon_args = {"width": 16, "title": api.to_utf8(msg % val)}
                 item["after"]["Patient"] = self.icon_tag("info", **icon_args)
             else:
                 patient_view_url = "{}/@@view".format(patient_url)
-                item["replace"]["Patient"] = get_link(patient_view_url, fullname)
+                patient_view_url = get_link(
+                    patient_view_url, sample_patient_fullname)
+                item["Patient"] = patient_view_url
         except Exception:
-            # If we can't get patient details, just use what we have
+            # Si no podemos leer datos del paciente, dejamos lo que ya hay
             pass
-
-        return item
 
     @viewcache
     def get_patient_by_mrn(self, mrn):
