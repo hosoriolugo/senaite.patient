@@ -106,6 +106,7 @@ MedicalRecordNumberField = TemporaryIdentifierField(
                 "align": "left",
                 "label": _(u"Lastname"),
             }, {
+                # ⬇️ añadido para 4-partes
                 "name": "maternal_lastname",
                 "width": "20",
                 "align": "left",
@@ -129,6 +130,7 @@ PatientFullNameField = FullnameField(
     widget=FullnameWidget(
         label=_("Patient name"),
         entry_mode="parts",
+        # ⬇️ ajustado para mostrar las 4 partes
         view_format="%(firstname)s %(middlename)s %(lastname)s %(maternal_lastname)s",
         render_own_label=True,
         visible={
@@ -202,7 +204,8 @@ GenderField = ExtStringField(
 
 @implementer(IOrderableSchemaExtender, IBrowserLayerAwareExtender)
 class AnalysisRequestSchemaExtender(object):
-    """Extends the AnalysisRequest with additional fields"""
+    """Extends the AnalysisRequest with additional fields
+    """
     adapts(IAnalysisRequest)
     layer = ISenaitePatientLayer
 
@@ -225,7 +228,8 @@ class AnalysisRequestSchemaExtender(object):
 
 @implementer(ISchemaModifier, IBrowserLayerAwareExtender)
 class AnalysisRequestSchemaModifier(object):
-    """Rearrange Schema Fields"""
+    """Rearrange Schema Fields
+    """
     adapts(IAnalysisRequest)
     layer = ISenaitePatientLayer
 
