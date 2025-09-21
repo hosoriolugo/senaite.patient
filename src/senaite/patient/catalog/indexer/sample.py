@@ -48,7 +48,7 @@ def _get_attr(obj, name):
 
 
 def _get_patient(ar):
-    """Obtiene el paciente desde el AR usando el método estándar."""
+    """Obtiene el paciente desde el AR si existe el método estándar."""
     return _get_attr(ar, "getPatient")
 
 
@@ -63,65 +63,71 @@ def is_temporary_mrn(instance):
 # ---------------------------------------------------------------------------
 @indexer(IAnalysisRequest)
 def medical_record_number(instance):
-    """Devuelve el MRN priorizando el paciente vinculado; si no, el del AR."""
+    """MRN priorizando paciente vinculado; si no, variantes en el propio AR."""
+    # 1) Intentar desde Paciente (DX)
     patient = _get_patient(instance)
     if patient is not None:
-        if hasattr(patient, "getMRN"):
-            mrn = patient.getMRN()
+        for attr in ("getMRN", "mrn", "getMedicalRecordNumber", "MedicalRecordNumber"):
+            mrn = _get_attr(patient, attr)
+            mrn = _s(mrn).strip()
             if mrn:
                 return [mrn]
-        mrn = getattr(patient, "mrn", u"")
+
+    # 2) Intentar desde el AR (AT/DX/legacy)
+    for attr in ("getMedicalRecordNumber", "MedicalRecordNumber", "medical_record_number"):
+        mrn = _get_attr(instance, attr)
+        mrn = _s(mrn).strip()
         if mrn:
             return [mrn]
 
-    mrn = getattr(instance, "medical_record_number", u"")
-    if callable(mrn):
-        mrn = mrn()
-    mrn = _s(mrn).strip()
-    return [mrn] if mrn else []
+    return []
 
 
 # ---------------------------------------------------------------------------
 # getMedicalRecordNumberValue — lo que muestra la columna "MRN" del listado
-# (puede estar en Metadata o también como FieldIndex si lo configuraste)
 # ---------------------------------------------------------------------------
 @indexer(IAnalysisRequest)
 def getMedicalRecordNumberValue(instance):
     # 1) MRN guardado en el propio AR (cubre variantes)
     for attr in ("getMedicalRecordNumber", "MedicalRecordNumber", "medical_record_number"):
         v = _get_attr(instance, attr)
+        v = _s(v).strip()
         if v:
-            return api.safe_unicode(v).strip() or None
+            return v or None
     # 2) MRN desde el Paciente (cubre variantes)
     patient = _get_patient(instance)
     if patient:
         for attr in ("getMedicalRecordNumber", "MedicalRecordNumber", "mrn", "patient_mrn"):
             v = _get_attr(patient, attr)
+            v = _s(v).strip()
             if v:
-                return api.safe_unicode(v).strip() or None
+                return v or None
     return None
 
 
 # ---------------------------------------------------------------------------
-# getPatientFullName (FieldIndex) — para mostrar/ordenar por paciente
+# getPatientFullName (FieldIndex) — mostrar/ordenar por paciente
 # ---------------------------------------------------------------------------
 @indexer(IAnalysisRequest)
 def getPatientFullName(instance):
-    """Devuelve el nombre completo del paciente (o el que tenga el AR)."""
+    """Nombre completo desde Patient (si hay) o variantes en el AR."""
+    # 1) Desde Paciente
     patient = _get_patient(instance)
     if patient is not None:
-        if hasattr(patient, "getFullname"):
-            name = patient.getFullname()
+        for attr in ("getFullname", "getPatientFullName", "PatientFullName", "patient_fullname"):
+            name = _get_attr(patient, attr)
+            name = _s(name).strip()
             if name:
-                return _s(name).strip()
-        name = getattr(patient, "patient_fullname", u"")
-        if name:
-            return _s(name).strip()
+                return name
 
-    name = getattr(instance, "patient_fullname", u"")
-    if callable(name):
-        name = name()
-    return _s(name).strip()
+    # 2) Desde el AR (AT/DX/legacy)
+    for attr in ("getPatientFullName", "PatientFullName", "patient_fullname"):
+        name = _get_attr(instance, attr)
+        name = _s(name).strip()
+        if name:
+            return name
+
+    return u""
 
 
 # ---------------------------------------------------------------------------
@@ -134,8 +140,8 @@ def getPatientUID(instance):
         return None
     if hasattr(patient, "UID"):
         return patient.UID()
+    # a veces getPatient devuelve un UID (string)
     if isinstance(patient, basestring) and len(patient) >= 32:
-        # a veces getPatient puede retornar un UID
         return patient
     return None
 
@@ -158,32 +164,34 @@ class ListingSearchableTextProvider(object):
 
         patient = _get_patient(self.context)
 
-        # MRN
+        # MRN (Patient primero; luego variantes en AR)
         mrn = u""
         if patient is not None:
-            if hasattr(patient, "getMRN"):
-                mrn = patient.getMRN()
-            if not mrn:
-                mrn = getattr(patient, "mrn", u"")
+            for attr in ("getMRN", "mrn", "getMedicalRecordNumber", "MedicalRecordNumber"):
+                mrn = _get_attr(patient, attr)
+                if mrn:
+                    break
         if not mrn:
-            mrn = getattr(self.context, "medical_record_number", u"")
-            if callable(mrn):
-                mrn = mrn()
+            for attr in ("getMedicalRecordNumber", "MedicalRecordNumber", "medical_record_number"):
+                mrn = _get_attr(self.context, attr)
+                if mrn:
+                    break
         mrn = _s(mrn).strip()
         if mrn:
             tokens.append(mrn)
 
-        # Nombre
+        # Nombre (Patient primero; luego variantes en AR)
         name = u""
         if patient is not None:
-            if hasattr(patient, "getFullname"):
-                name = patient.getFullname()
-            if not name:
-                name = getattr(patient, "patient_fullname", u"")
+            for attr in ("getFullname", "getPatientFullName", "PatientFullName", "patient_fullname"):
+                name = _get_attr(patient, attr)
+                if name:
+                    break
         if not name:
-            name = getattr(self.context, "patient_fullname", u"")
-            if callable(name):
-                name = name()
+            for attr in ("getPatientFullName", "PatientFullName", "patient_fullname"):
+                name = _get_attr(self.context, attr)
+                if name:
+                    break
         name = _s(name).strip()
         if name:
             tokens.append(name)
