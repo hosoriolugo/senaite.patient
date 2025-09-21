@@ -611,6 +611,7 @@ class Patient(Container):
         if not isinstance(value, string_types):
             value = u""
         mutator = self.mutator("lastname")
+        mutator(self, api.safe_unicode(value.strip()))
 
     # --- Added getters/setters for maternal_lastname ---
     @security.protected(permissions.View)
@@ -627,11 +628,9 @@ class Patient(Container):
         mutator(self, api.safe_unicode(value.strip()))
     # --- end addition ---
 
-        mutator(self, api.safe_unicode(value.strip()))
-
-        @security.protected(permissions.View)
+    @security.protected(permissions.View)
     def getFullname(self):
-        """Full name built from 4 parts: firstname, middlename, lastname, maternal_lastname."""
+        """Nombre completo en 4 partes: firstname, middlename, lastname, maternal_lastname."""
         parts = []
         for fname in ("firstname", "middlename", "lastname", "maternal_lastname"):
             try:
@@ -646,6 +645,7 @@ class Patient(Container):
 
     @security.protected(permissions.View)
     def getPatientFullName(self):
+        # Alias para compatibilidad: usa el conector nativo
         return self.getFullname()
 
 
