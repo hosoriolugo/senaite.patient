@@ -910,22 +910,6 @@ msgid "title_patient_samples_listing"
 msgstr "Muestras de ${patient_fullname}"
 
 #: Field label
-msgid "Patient Weight"
-msgstr "Peso del Paciente"
-
-#: Field description
-msgid "Patient weight in kilograms"
-msgstr "Peso del paciente en kilogramos"
-
-#: Field label
-msgid "Patient Room"
-msgstr "Habitación del Paciente"
-
-#: Field description
-msgid "Patient room number or identifier"
-msgstr "Número o identificador de la habitación del paciente"
-
-#: Field label
 msgid "Maternal Lastname"
 msgstr "Apellido Materno"
 
@@ -948,3 +932,27 @@ msgstr "Primer apellido Paciente"
 #: Field description
 msgid "Patient maternal lastname"
 msgstr "Segundo apellido Paciente"
+
+#. LIS/Clinical label: patient body weight in SI units
+msgid "Patient weight (kg)"
+msgstr "Peso corporal del paciente (kg)"
+
+#. LIS/Clinical help: instruction to record in SI units
+msgid "Enter the patient weight in kilograms"
+msgstr "Registre el peso corporal del paciente en kilogramos."
+
+#. LIS/Clinical label: inpatient location/bed identifier
+msgid "Room #"
+msgstr "N.º de habitación/cama"
+
+#. LIS/Clinical help: room/bed identifier for inpatients
+msgid "Patient room/bed number"
+msgstr "Número de habitación o cama del paciente (si aplica)."
+
+#. LIS/Clinical label: combined field
+msgid "Age / Date of birth"
+msgstr "Edad / Fecha de nacimiento"
+
+#. Generic button label
+msgid "Show all"
+msgstr "Mostrar todo"
