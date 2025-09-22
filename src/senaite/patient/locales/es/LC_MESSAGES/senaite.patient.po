@@ -971,3 +971,9 @@ msgstr "Apellido materno"
 
 msgid "Client share"
 msgstr "Compartir con el cliente"
+
+msgid "Birthdate"
+msgstr "Fecha de nacimiento"
+
+msgid "Age"
+msgstr "Edad"
