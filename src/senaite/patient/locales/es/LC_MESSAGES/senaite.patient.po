@@ -965,3 +965,6 @@ msgstr "Correo electrónico y teléfono"
 
 msgid "Address"
 msgstr "Dirección"
+
+msgid "label_patient_maternal_lastname"
+msgstr "Apellido materno"
