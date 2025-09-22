@@ -58,20 +58,20 @@ class PatientEditForm(EditFormAdapterBase):
         form = data.get("form")
         value = data.get("value")
 
-        # Cambios en el checkbox "estimated"
+        # Cambios en el checkbox "estimated" -> recalcula desde la fecha que haya
         if name in ESTIMATED_BIRTHDATE_FIELDS:
             self._sync_fields(form, value)
             return self.data
 
         # Cambios en la fecha de nacimiento -> recalcula Age
         if name in BIRTHDATE_FIELDS:
-            self._update_age_from_birthdate(form.get(BIRTHDATE_FIELDS[0]))
+            self._update_age_from_birthdate(self._get_birthdate_from_form(form))
             self._show_all()
             return self.data
 
         # Si el usuario edita Age a mano, lo ignoramos y lo recalculamos desde Birthdate
         if name == AGE_FIELD:
-            self._update_age_from_birthdate(form.get(BIRTHDATE_FIELDS[0]))
+            self._update_age_from_birthdate(self._get_birthdate_from_form(form))
             self._show_all()
             return self.data
 
@@ -84,8 +84,12 @@ class PatientEditForm(EditFormAdapterBase):
         self.add_show_field(AGE_FIELD)
         self.add_show_field(BIRTHDATE_FIELDS[0])
 
+    def _get_birthdate_from_form(self, form):
+        """Intenta conseguir la fecha desde cualquiera de las dos claves."""
+        return form.get(BIRTHDATE_FIELDS[0]) or form.get(BIRTHDATE_FIELDS[1])
+
     def _update_age_from_birthdate(self, birthdate):
-        # Mantiene el formato YMD nativo (e.g., '57y 4m 28d')
+        # Mantiene el formato YMD nativo (e.g., '57y 4m 20d')
         age = dtime.get_ymd(birthdate)
         self.add_update_field(AGE_FIELD, age)
 
@@ -94,8 +98,8 @@ class PatientEditForm(EditFormAdapterBase):
         # Siempre mostrar ambos campos
         self._show_all()
 
-        # Siempre calcular Age desde Birthdate si ya hay valor
-        birthdate = form.get(BIRTHDATE_FIELDS[0])
+        # Siempre calcular Age desde Birthdate si ya hay valor (buscando en ambas claves)
+        birthdate = self._get_birthdate_from_form(form)
         if birthdate:
             self._update_age_from_birthdate(birthdate)
         # 'estimated_flag' queda disponible para que la plantilla muestre el aviso.
