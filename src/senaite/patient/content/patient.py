@@ -89,7 +89,7 @@ class IPatientSchema(model.Schema):
         required=False
     )
 
-        # race/ethnicity fieldset
+    # race/ethnicity fieldset
     fieldset(
         "race_and_ethnicity",
         label=_(u"Race and Ethnicity"),
@@ -111,7 +111,6 @@ class IPatientSchema(model.Schema):
         "address",
         label=_(u"Address"),
         fields=["address"])
-
 
     # Default
 
@@ -166,8 +165,7 @@ class IPatientSchema(model.Schema):
         required=False,
     )
 
-
-    # --- Added field: maternal_lastname ---
+    # --- Added field: maternal_lastname (from your fork) ---
     maternal_lastname = schema.TextLine(
         title=_(u"label_patient_maternal_lastname", default=u"Maternal Lastname"),
         description=_(u"Patient maternal lastname"),
@@ -313,18 +311,6 @@ class IPatientSchema(model.Schema):
         ]
     )
 
-    directives.widget("birthdate",
-                      DatetimeWidget,
-                      show_time=False)
-    birthdate = DatetimeField(
-        title=_(u"label_patient_birthdate", default=u"Birthdate"),
-        description=_(u"Patient birthdate"),
-        required=False,
-    )
-    # XXX core's DateTimeWidget relies on field's get_max function if not 'max'
-    #     property is explicitly set to the widget
-    birthdate.get_max = get_max_birthdate
-
     estimated_birthdate = schema.Bool(
         title=_(
             u"label_patient_estimated_birthdate",
@@ -338,6 +324,32 @@ class IPatientSchema(model.Schema):
         default=False,
         required=False,
     )
+
+    directives.widget("birthdate",
+                      DatetimeWidget,
+                      show_time=False)
+    birthdate = DatetimeField(
+        title=_(u"label_patient_birthdate", default=u"Birthdate"),
+        description=_(u"Patient birthdate"),
+        required=False,
+    )
+    # XXX core's DateTimeWidget relies on field's get_max function if not 'max'
+    #     property is explicitly set to the widget
+    birthdate.get_max = get_max_birthdate
+
+    # --- Age field from original (kept) ---
+    age = schema.TextLine(
+        title=_(u"label_patient_age", default=u"Age"),
+        description=_(
+            u"description_patient_age",
+            default=_(
+                u"Age in YMD (Years-Months-Days) format. "
+                u"Examples: '45y 3m 20d', '67y'."
+            )
+        ),
+        required=False,
+    )
+    # --- end age ---
 
     deceased = schema.Bool(
         title=_(
@@ -442,6 +454,15 @@ class IPatientSchema(model.Schema):
         now = dtime.to_zone(datetime.now(), tz)
         if now < dob:
             raise Invalid(_("Date of birth cannot be a future date"))
+
+    @invariant
+    def validate_age(data):
+        """Validate the age is in YMD format."""
+        if not data.age:
+            return
+
+        if not dtime.is_ymd(data.age):
+            raise Invalid(_("Age must be in YMD format"))
 
 
 @implementer(IPatient, IPatientSchema, IClientShareable)
@@ -614,7 +635,7 @@ class Patient(Container):
         mutator = self.mutator("lastname")
         mutator(self, api.safe_unicode(value.strip()))
 
-    # --- Added getters/setters for maternal_lastname ---
+    # --- Added getters/setters for maternal_lastname (from your fork) ---
     @security.protected(permissions.View)
     def getMaternalLastname(self):
         accessor = self.accessor("maternal_lastname")
@@ -632,23 +653,18 @@ class Patient(Container):
     @security.protected(permissions.View)
     def getFullname(self):
         """Nombre completo en 4 partes: firstname, middlename, lastname, maternal_lastname."""
-        parts = []
-        for fname in ("firstname", "middlename", "lastname", "maternal_lastname"):
-            try:
-                accessor = self.accessor(fname)
-                raw = accessor(self) or u""
-            except Exception:
-                raw = u""
-            txt = api.safe_unicode(raw).strip()
-            if txt:
-                parts.append(txt)
-        return u" ".join(parts)
+        parts = [
+            self.getFirstname(),
+            self.getMiddlename(),
+            self.getLastname(),
+            self.getMaternalLastname(),
+        ]
+        return " ".join(filter(None, parts))
 
+    # Alias para compatibilidad externa
     @security.protected(permissions.View)
     def getPatientFullName(self):
-        # Alias para compatibilidad: usa el conector nativo
         return self.getFullname()
-
 
     ###
     # EMAIL AND PHONE
@@ -850,3 +866,41 @@ class Patient(Container):
         """
         mutator = self.mutator("estimated_birthdate")
         return mutator(self, value)
+
+    @security.protected(permissions.View)
+    def getAge(self):
+        """Returns the age of the patient at current time (derived from DoB)
+        """
+        dob = self.getBirthdate()
+        return dtime.get_ymd(dob) or ""
+
+    @security.protected(permissions.ModifyPortalContent)
+    def setAge(self, value):
+        """Set the age when DoB is estimated: converts YMD -> DoB
+        """
+        if not dtime.is_ymd(value):
+            return
+
+        # don't assign age unless estimated DoB
+        if not self.getEstimatedBirthdate():
+            return
+
+        # update the value of the date of birth
+        dob = dtime.get_since_date(value)
+        self.setBirthdate(dob)
+
+    # BBB AT schema field property
+    Age = property(getAge, setAge)
+
+    # no value is stored for age, but relies on birthdate
+    age = property(getAge, setAge)
+
+    # --- Optional helper: age at a reference date (e.g., sampling date) ---
+    @security.protected(permissions.View)
+    def getAgeAt(self, ref_date):
+        """Return age in YMD at a given reference date (e.g., AR sampling date)"""
+        dob = self.getBirthdate()
+        if not dob or not ref_date:
+            return u""
+        return dtime.get_ymd(dob, ref_date=ref_date) or u""
+    # --- end helper ---
