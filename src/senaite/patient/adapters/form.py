@@ -38,11 +38,11 @@ TRUTHY = {True, "selected", "on", "true", "1", u"on", u"true", u"1"}
 class PatientEditForm(EditFormAdapterBase):
     """Edit form for Patient content type
 
-    Nueva lógica:
+    Lógica acordada:
     - Siempre se muestran Birthdate y Age.
-    - Age siempre se calcula desde Birthdate (no inferimos DoB desde Age).
-    - Si 'estimated_birthdate' está marcada, la UI puede mostrar un aviso,
-      pero no se ocultan campos aquí.
+    - Age siempre se calcula desde Birthdate (formato YMD: '45y 3m 20d', '67y').
+    - Si 'estimated_birthdate' está marcada, la UI/plantilla muestra el aviso
+      de “edad estimada”, pero aquí no se ocultan campos.
     """
 
     def initialized(self, data):
@@ -85,18 +85,17 @@ class PatientEditForm(EditFormAdapterBase):
         self.add_show_field(BIRTHDATE_FIELDS[0])
 
     def _update_age_from_birthdate(self, birthdate):
+        # Mantiene el formato YMD nativo (e.g., '57y 4m 28d')
         age = dtime.get_ymd(birthdate)
         self.add_update_field(AGE_FIELD, age)
 
     def _sync_fields(self, form, estimated_flag):
-        """Sincroniza visibilidad/valores según el estado de 'estimated'."""
+        """Sincroniza visibilidad/valores (no oculta campos)."""
         # Siempre mostrar ambos campos
         self._show_all()
 
-        # Siempre calcular Age desde Birthdate (si ya hay valor)
+        # Siempre calcular Age desde Birthdate si ya hay valor
         birthdate = form.get(BIRTHDATE_FIELDS[0])
         if birthdate:
             self._update_age_from_birthdate(birthdate)
-
-        # Nota: 'estimated_flag' queda disponible para la plantilla/UI.
-        # Aquí no se ocultan campos; la advertencia de "edad estimada" la maneja la vista.
+        # 'estimated_flag' queda disponible para que la plantilla muestre el aviso.
