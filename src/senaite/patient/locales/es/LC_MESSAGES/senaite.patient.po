@@ -956,3 +956,12 @@ msgstr "Edad / Fecha de nacimiento"
 #. Generic button label
 msgid "Show all"
 msgstr "Mostrar todo"
+
+msgid "Race and Ethnicity"
+msgstr "Raza y etnia"
+
+msgid "Email and Phone"
+msgstr "Correo electrónico y teléfono"
+
+msgid "Address"
+msgstr "Dirección"
