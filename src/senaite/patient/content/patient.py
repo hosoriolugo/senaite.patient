@@ -89,31 +89,29 @@ class IPatientSchema(model.Schema):
         required=False
     )
 
-    # race/ethnicity fieldset
-fieldset(
-    "race_and_ethnicity",
-    label=_(u"Race and Ethnicity"),
-    fields=["races", "ethnicities"],
-)
+        # race/ethnicity fieldset
+    fieldset(
+        "race_and_ethnicity",
+        label=_(u"Race and Ethnicity"),
+        fields=["races", "ethnicities"])
 
-# contact fieldset
-fieldset(
-    "email_and_phone",
-    label=_(u"Email and Phone"),
-    fields=[
-        "email",
-        "additional_emails",
-        "phone",
-        "additional_phone_numbers",
-    ],
-)
+    # contact fieldset
+    fieldset(
+        "email_and_phone",
+        label=_(u"Email and Phone"),
+        fields=[
+            "email",
+            "additional_emails",
+            "phone",
+            "additional_phone_numbers",
+        ])
 
-# address fieldset
-fieldset(
-    "address",
-    label=_(u"Address"),
-    fields=["address"],
-)
+    # address fieldset
+    fieldset(
+        "address",
+        label=_(u"Address"),
+        fields=["address"])
+
 
     # Default
 
