@@ -968,3 +968,6 @@ msgstr "Dirección"
 
 msgid "label_patient_maternal_lastname"
 msgstr "Apellido materno"
+
+msgid "Client share"
+msgstr "Compartir con el cliente"
