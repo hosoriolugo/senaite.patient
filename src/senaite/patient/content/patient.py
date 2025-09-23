@@ -92,13 +92,13 @@ class IPatientSchema(model.Schema):
     # race/ethnicity fieldset
     fieldset(
         "race_and_ethnicity",
-        label=_(u"Race and Ethnicity"),
+        label=u"Race and Ethnicity",
         fields=["races", "ethnicities"])
 
     # contact fieldset
     fieldset(
         "email_and_phone",
-        label=_(u"Email and Phone"),
+        label=u"Email and Phone",
         fields=[
             "email",
             "additional_emails",
@@ -109,7 +109,7 @@ class IPatientSchema(model.Schema):
     # address fieldset
     fieldset(
         "address",
-        label=_(u"Address"),
+        label=u"Address",
         fields=["address"])
 
     # Default
@@ -165,7 +165,8 @@ class IPatientSchema(model.Schema):
         required=False,
     )
 
-    # --- Added field: maternal_lastname (from your fork) ---
+
+    # --- Added field: maternal_lastname ---
     maternal_lastname = schema.TextLine(
         title=_(u"label_patient_maternal_lastname", default=u"Maternal Lastname"),
         description=_(u"Patient maternal lastname"),
@@ -311,6 +312,18 @@ class IPatientSchema(model.Schema):
         ]
     )
 
+    directives.widget("birthdate",
+                      DatetimeWidget,
+                      show_time=False)
+    birthdate = DatetimeField(
+        title=_(u"label_patient_birthdate", default=u"Birthdate"),
+        description=_(u"Patient birthdate"),
+        required=False,
+    )
+    # XXX core's DateTimeWidget relies on field's get_max function if not 'max'
+    #     property is explicitly set to the widget
+    birthdate.get_max = get_max_birthdate
+
     estimated_birthdate = schema.Bool(
         title=_(
             u"label_patient_estimated_birthdate",
@@ -324,32 +337,6 @@ class IPatientSchema(model.Schema):
         default=False,
         required=False,
     )
-
-    directives.widget("birthdate",
-                      DatetimeWidget,
-                      show_time=False)
-    birthdate = DatetimeField(
-        title=_(u"label_patient_birthdate", default=u"Birthdate"),
-        description=_(u"Patient birthdate"),
-        required=False,
-    )
-    # XXX core's DateTimeWidget relies on field's get_max function if not 'max'
-    #     property is explicitly set to the widget
-    birthdate.get_max = get_max_birthdate
-
-    # --- Age field from original (kept) ---
-    age = schema.TextLine(
-        title=_(u"label_patient_age", default=u"Age"),
-        description=_(
-            u"description_patient_age",
-            default=_(
-                u"Age in YMD (Years-Months-Days) format. "
-                u"Examples: '45y 3m 20d', '67y'."
-            )
-        ),
-        required=False,
-    )
-    # --- end age ---
 
     deceased = schema.Bool(
         title=_(
@@ -455,15 +442,6 @@ class IPatientSchema(model.Schema):
         if now < dob:
             raise Invalid(_("Date of birth cannot be a future date"))
 
-    @invariant
-    def validate_age(data):
-        """Validate the age is in YMD format."""
-        if not data.age:
-            return
-
-        if not dtime.is_ymd(data.age):
-            raise Invalid(_("Age must be in YMD format"))
-
 
 @implementer(IPatient, IPatientSchema, IClientShareable)
 class Patient(Container):
@@ -535,10 +513,10 @@ class Patient(Container):
 
     @security.protected(permissions.ModifyPortalContent)
     def setIdentifiers(self, value):
-        """Set identifiers by the field accessor, ignoring empty rows"""
+        """Set identifiers by the field accessor
+        """
         mutator = self.mutator("identifiers")
-        normalized = _normalize_identifiers(value)
-        return mutator(self, normalized)
+        return mutator(self, value)
 
     @security.protected(permissions.View)
     def getRaces(self):
@@ -635,7 +613,7 @@ class Patient(Container):
         mutator = self.mutator("lastname")
         mutator(self, api.safe_unicode(value.strip()))
 
-    # --- Added getters/setters for maternal_lastname (from your fork) ---
+    # --- Added getters/setters for maternal_lastname ---
     @security.protected(permissions.View)
     def getMaternalLastname(self):
         accessor = self.accessor("maternal_lastname")
@@ -653,18 +631,23 @@ class Patient(Container):
     @security.protected(permissions.View)
     def getFullname(self):
         """Nombre completo en 4 partes: firstname, middlename, lastname, maternal_lastname."""
-        parts = [
-            self.getFirstname(),
-            self.getMiddlename(),
-            self.getLastname(),
-            self.getMaternalLastname(),
-        ]
-        return " ".join(filter(None, parts))
+        parts = []
+        for fname in ("firstname", "middlename", "lastname", "maternal_lastname"):
+            try:
+                accessor = self.accessor(fname)
+                raw = accessor(self) or u""
+            except Exception:
+                raw = u""
+            txt = api.safe_unicode(raw).strip()
+            if txt:
+                parts.append(txt)
+        return u" ".join(parts)
 
-    # Alias para compatibilidad externa
     @security.protected(permissions.View)
     def getPatientFullName(self):
+        # Alias para compatibilidad: usa el conector nativo
         return self.getFullname()
+
 
     ###
     # EMAIL AND PHONE
@@ -867,85 +850,63 @@ class Patient(Container):
         mutator = self.mutator("estimated_birthdate")
         return mutator(self, value)
 
+    # --- NUEVA LÓGICA DE EDAD (PEGAR AL FINAL DE LA CLASE Patient) ---
+
+    def _fmt_age_upper(self, s):
+        """Devuelve la edad con sufijos en MAYÚSCULA: 'y','m','d' -> 'Y','M','D'."""
+        if not s:
+            return s
+        # s viene típicamente como u'20y 2m 14d' desde dtime.get_ymd(...)
+        return s.replace(u'y', u'Y').replace(u'm', u'M').replace(u'd', u'D')
+
     @security.protected(permissions.View)
     def getAge(self):
-        """Returns the age of the patient at current time (derived from DoB)
-        """
+        """Edad actual en formato Y/M/D derivada de la fecha de nacimiento."""
         dob = self.getBirthdate()
-        return dtime.get_ymd(dob) or ""
+        # dtime.get_ymd(dob) devuelve algo como u'20y 2m 14d' o u'' si no hay DoB
+        age = dtime.get_ymd(dob) or u""
+        return self._fmt_age_upper(age)
 
     @security.protected(permissions.ModifyPortalContent)
     def setAge(self, value):
-        """Set the age when DoB is estimated: converts YMD -> DoB
         """
-        if not dtime.is_ymd(value):
+        Asigna la edad solo cuando la fecha de nacimiento es estimada:
+        - Normaliza a minúsculas para validar/convertir ('20Y 2M 14D' -> '20y 2m 14d')
+        - Convierte la edad YMD a fecha de nacimiento y la guarda en birthdate
+        """
+        # Normaliza entrada (acepta str/bytes/None)
+        val = api.safe_unicode(value or u"").strip()
+        if not val:
             return
 
-        # don't assign age unless estimated DoB
+        # dtime.is_ymd espera sufijos en minúscula ('y','m','d')
+        val_l = val.lower()
+
+        if not dtime.is_ymd(val_l):
+            # Si no cumple formato Y/M/D, no hace nada (la invariante del schema ya valida si procede)
+            return
+
+        # Solo convertir YMD->DoB si el DoB es estimado
         if not self.getEstimatedBirthdate():
             return
 
-        # update the value of the date of birth
-        dob = dtime.get_since_date(value)
+        # Calcula fecha de nacimiento a partir de la edad
+        dob = dtime.get_since_date(val_l)
         self.setBirthdate(dob)
 
-    # BBB AT schema field property
+    # Compatibilidad estilo Archetypes (si alguien usa 'Age' con A mayúscula)
     Age = property(getAge, setAge)
 
-    # no value is stored for age, but relies on birthdate
+    # Mapea el atributo 'age' al cálculo basado en birthdate
     age = property(getAge, setAge)
 
-    # --- Optional helper: age at a reference date (e.g., sampling date) ---
     @security.protected(permissions.View)
     def getAgeAt(self, ref_date):
-        """Return age in YMD at a given reference date (e.g., AR sampling date)"""
+        """Edad en Y/M/D a una fecha de referencia (p.ej. fecha de muestreo)."""
         dob = self.getBirthdate()
         if not dob or not ref_date:
             return u""
-        return dtime.get_ymd(dob, ref_date=ref_date) or u""
-    # --- end helper ---
+        age = dtime.get_ymd(dob, ref_date=ref_date) or u""
+        return self._fmt_age_upper(age)
 
-
-# --- helpers para sanitizar Identificadores (pegar al final de patient.py) ---
-
-def _is_empty_identifier_row(row):
-    """Devuelve True si la fila está vacía (sin tipo ni ID)."""
-    try:
-        key = (row.get("key") or u"").strip()
-        val = (row.get("value") or u"").strip()
-        return not key and not val
-    except Exception:
-        # Si no es un dict o viene mal formado, lo tratamos como vacío/descartable
-        return True
-
-
-def _normalize_identifiers(value):
-    """Limpia el DataGrid de identificadores:
-    - Omite NO_VALUE, None y filas vacías
-    - Asegura que 'key' y 'value' sean unicode y sin espacios sobrantes
-    """
-    if not value:
-        return []
-
-    cleaned = []
-    for row in value:
-        # Omitir registros nulos o tipos extraños
-        if row in (None, NO_VALUE) or not isinstance(row, dict):
-            continue
-
-        # Omitir filas vacías (widget suele auto-agregar una)
-        if _is_empty_identifier_row(row):
-            continue
-
-        key = api.safe_unicode(row.get("key", u"")).strip()
-        val = api.safe_unicode(row.get("value", u"")).strip()
-
-        # Si tras normalizar ambos quedan vacíos, omitir
-        if not key and not val:
-            continue
-
-        cleaned.append({"key": key, "value": val})
-
-    return cleaned
-
-# --- fin helpers ---
+    # --- FIN NUEVA LÓGICA DE EDAD ---
