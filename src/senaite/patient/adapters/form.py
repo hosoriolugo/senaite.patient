@@ -33,7 +33,7 @@ BIRTHDATE_FIELDS = (
     "form.widgets.birthdate-date",
 )
 
-TRUTHY = {True, "selected", "on", "true", "1", u"on", u"true", u"1"}
+TRUTHY = set([True, "selected", "on", "true", "1", u"on", u"true", u"1"])
 
 
 class PatientEditForm(EditFormAdapterBase):
@@ -130,19 +130,19 @@ class PatientEditForm(EditFormAdapterBase):
     def _pad2(self, v):
         if v is None:
             return None
-        s = str(v).strip()
+        s = unicode(v).strip()
         if not s:
             return None
         try:
-            return f"{int(s):02d}"
+            return "%02d" % int(s)
         except Exception:
             return None
 
     def _coerce_date(self, y, m, d):
         try:
-            y = int(str(y))
-            m = int(str(m))
-            d = int(str(d))
+            y = int(unicode(y))
+            m = int(unicode(m))
+            d = int(unicode(d))
             return date(y, m, d)
         except Exception:
             return None
@@ -151,7 +151,7 @@ class PatientEditForm(EditFormAdapterBase):
         """Acepta 'YYYY-MM-DD' y 'DD/MM/YYYY'."""
         if not val:
             return None
-        s = str(val).strip()
+        s = unicode(val).strip()
         if "-" in s:
             parts = s.split("-")
             if len(parts) == 3:
@@ -165,23 +165,28 @@ class PatientEditForm(EditFormAdapterBase):
         return None
 
     def _coerce_to_date(self, obj):
-        """Convierte distintos tipos a 'date' si es posible."""
+        """Convierte distintos tipos a 'date' si es posible (compatible Py2)."""
         # date nativa
         if isinstance(obj, date) and not isinstance(obj, pydatetime):
             return obj
         # datetime nativa
         if isinstance(obj, pydatetime):
-            return obj.date()
+            try:
+                return obj.date()
+            except Exception:
+                pass
         # strings comunes del widget
-        if isinstance(obj, str):
+        if isinstance(obj, basestring):
             parsed = self._parse_date_string(obj)
             if parsed:
                 return parsed
         # objetos con atributos year/month/day
+        has_attrs = True
         for attr in ("year", "month", "day"):
             if not hasattr(obj, attr):
+                has_attrs = False
                 break
-        else:
+        if has_attrs:
             try:
                 return date(int(obj.year), int(obj.month), int(obj.day))
             except Exception:
@@ -217,7 +222,7 @@ class PatientEditForm(EditFormAdapterBase):
         m = form.get("form.widgets.birthdate-month")
         d = form.get("form.widgets.birthdate-day")
 
-        # si el evento actual vino con una de las partes, úsala para override inmediato
+        # override inmediato con la parte que está llegando en este evento
         if name == "form.widgets.birthdate-year":
             y = value
         elif name == "form.widgets.birthdate-month":
@@ -225,7 +230,7 @@ class PatientEditForm(EditFormAdapterBase):
         elif name == "form.widgets.birthdate-day":
             d = value
 
-        y = (str(y).strip() if y is not None and str(y).strip() != "" else None)
+        y = (unicode(y).strip() if y is not None and unicode(y).strip() != "" else None)
         m = self._pad2(m)
         d = self._pad2(d)
 
