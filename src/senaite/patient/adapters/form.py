@@ -63,8 +63,8 @@ class PatientEditForm(EditFormAdapterBase):
             self._sync_fields(form, value)
             return self.data
 
-        # Cambios en la fecha de nacimiento -> recalcula Age
-        if name in BIRTHDATE_FIELDS:
+        # Cualquier cambio relacionado con la fecha de nacimiento (incluye subcampos -year/-month/-day)
+        if self._is_birthdate_field(name):
             self._update_age_from_birthdate(self._get_birthdate_from_form(form))
             self._show_all()
             return self.data
@@ -84,9 +84,39 @@ class PatientEditForm(EditFormAdapterBase):
         self.add_show_field(AGE_FIELD)
         self.add_show_field(BIRTHDATE_FIELDS[0])
 
+    def _is_birthdate_field(self, name):
+        """Devuelve True si el nombre corresponde a cualquier variante del widget de fecha."""
+        if not name:
+            return False
+        if name in BIRTHDATE_FIELDS:
+            return True
+        # capta subcampos como birthdate-year/month/day/hour/minute, etc.
+        return name.startswith("form.widgets.birthdate-")
+
     def _get_birthdate_from_form(self, form):
-        """Intenta conseguir la fecha desde cualquiera de las dos claves."""
-        return form.get(BIRTHDATE_FIELDS[0]) or form.get(BIRTHDATE_FIELDS[1])
+        """Obtiene la fecha desde las claves estándar o la reconstruye de year/month/day."""
+        # 1) claves directas del widget
+        bd = form.get(BIRTHDATE_FIELDS[0]) or form.get(BIRTHDATE_FIELDS[1])
+        if bd:
+            return bd
+
+        # 2) reconstrucción desde partes year/month/day si existen
+        y = form.get("form.widgets.birthdate-year")
+        m = form.get("form.widgets.birthdate-month")
+        d = form.get("form.widgets.birthdate-day")
+        if y and m and d:
+            try:
+                # Normaliza a enteros por si llegan como strings con ceros a la izquierda
+                y_i = int(str(y))
+                m_i = int(str(m))
+                d_i = int(str(d))
+                # Construye una fecha; get_ymd acepta date/datetime
+                return dtime.datetime(y_i, m_i, d_i).date()
+            except Exception:
+                # Si no se puede construir, devolvemos None y dejamos que no actualice
+                return None
+
+        return None
 
     def _update_age_from_birthdate(self, birthdate):
         # Mantiene el formato YMD nativo (e.g., '57y 4m 20d')
@@ -98,7 +128,7 @@ class PatientEditForm(EditFormAdapterBase):
         # Siempre mostrar ambos campos
         self._show_all()
 
-        # Siempre calcular Age desde Birthdate si ya hay valor (buscando en ambas claves)
+        # Siempre calcular Age desde Birthdate si ya hay valor (buscando en todas las variantes)
         birthdate = self._get_birthdate_from_form(form)
         if birthdate:
             self._update_age_from_birthdate(birthdate)
