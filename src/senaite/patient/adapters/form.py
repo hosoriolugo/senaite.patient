@@ -55,7 +55,7 @@ class PatientEditForm(EditFormAdapterBase):
     Reglas:
     - La Edad SIEMPRE se calcula desde la Fecha de Nacimiento (estimada o exacta).
     - En cuanto hay fecha -> mostrar Edad y recalcular.
-    - Si marcan "fecha estimada" sin fecha aún -> mostrar Edad (quedará vacía hasta que haya fecha).
+    - Si marcan "fecha estimada" sin fecha aún -> mostrar Edad (vacía hasta que haya fecha).
     - Edad es de "solo lectura lógica": se ignoran ediciones manuales.
     """
 
@@ -72,6 +72,17 @@ class PatientEditForm(EditFormAdapterBase):
         self.toggle_and_update_fields(form, estimated_birthdate)
         self._recalc_if_possible(form)
         # Reforzar visibilidad coherente tras posibles recálculos
+        self._enforce_visibility(estimated_birthdate, form)
+        return self.data
+
+    def added(self, data):
+        """Algunos widgets disparan 'added' al cerrar el datepicker o al setear partes."""
+        form = data.get("form")
+        # recalcular si ya hay fecha y asegurar visibilidad
+        self._recalc_if_possible(form)
+        estimated_birthdate = form.get(ESTIMATED_BIRTHDATE_FIELDS[1])
+        if estimated_birthdate is None:
+            estimated_birthdate = form.get(ESTIMATED_BIRTHDATE_FIELDS[0])
         self._enforce_visibility(estimated_birthdate, form)
         return self.data
 
@@ -104,7 +115,6 @@ class PatientEditForm(EditFormAdapterBase):
             bd = self._get_birthdate_from_form(form)
             if bd:
                 self.update_age_field_from_birthdate(bd)
-            # Mantener visibilidad conforme a "estimada"
             estimated_birthdate = form.get(ESTIMATED_BIRTHDATE_FIELDS[1])
             if estimated_birthdate is None:
                 estimated_birthdate = form.get(ESTIMATED_BIRTHDATE_FIELDS[0])
@@ -124,9 +134,6 @@ class PatientEditForm(EditFormAdapterBase):
         age = safe_unicode(age)
         self.add_update_field(AGE_FIELD, age)
 
-    # Eliminamos el flujo inverso (Edad -> Fecha) para reforzar el "solo lectura".
-    # Si alguna vez lo necesitas de nuevo, reintroduce update_birthdate_field_from_age.
-
     # ----------------------
     # Visibilidad y sincronización
     # ----------------------
@@ -143,13 +150,13 @@ class PatientEditForm(EditFormAdapterBase):
             return
 
         # No hay fecha aún:
-        # - si es estimada, mostrar Edad (vacía hasta que carguen fecha)
         if is_estimated:
+            # con estimada, mostramos Edad (quedará vacía hasta que carguen fecha)
             self.add_show_field(AGE_FIELD)
         else:
             self.add_hide_field(AGE_FIELD)
 
-        # Birthdate siempre visible para que puedan cargarla
+        # Birthdate siempre visible para poder cargarla
         self.add_show_field(BIRTHDATE_FIELDS[0])
 
     # ----------------------
@@ -178,7 +185,6 @@ class PatientEditForm(EditFormAdapterBase):
                 y_i = int(str(y))
                 m_i = int(str(m))
                 d_i = int(str(d))
-                # dtime expone datetime; usamos su date para consistencia
                 return dtime.datetime(y_i, m_i, d_i).date()
             except Exception:
                 return None
