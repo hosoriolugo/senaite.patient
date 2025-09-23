@@ -49,14 +49,66 @@ def safe_unicode(value, encoding="utf-8"):
             return u""
 
 
+def _to_ascii_age(age_text):
+    """Normaliza cualquier formato de edad (localizado) a ASCII: '12y 3m 4d'.
+
+    Evita problemas de indexación en Py2 con cadenas UTF-8 ('años', 'días', etc.).
+    """
+    txt = safe_unicode(age_text).lower()
+
+    # Normalizaciones comunes de locales
+    # español
+    txt = txt.replace(u"a\u00F1os", u"y")      # años -> y
+    txt = txt.replace(u"años", u"y")
+    txt = txt.replace(u"meses", u"m")
+    txt = txt.replace(u"mes", u"m")
+    txt = txt.replace(u"d\u00EDas", u"d")     # días -> d
+    txt = txt.replace(u"dias", u"d")
+    # portugués / italiano / francés abreviado (por si acaso)
+    txt = txt.replace(u"anos", u"y")
+    txt = txt.replace(u"anni", u"y")
+    txt = txt.replace(u"ans", u"y")
+    txt = txt.replace(u"giorni", u"d")
+    txt = txt.replace(u"jours", u"d")
+
+    # Abreviaturas potencialmente con espacios o puntos
+    # (dejamos y/m/d como objetivo)
+    replacements = {
+        u" a ": u" y ",
+        u" m ": u" m ",
+        u" d ": u" d ",
+        u" y ": u" y ",
+        u" y": u" y",
+        u" m": u" m",
+        u" d": u" d",
+        u"years": u"y",
+        u"year": u"y",
+        u"months": u"m",
+        u"month": u"m",
+        u"days": u"d",
+        u"day": u"d",
+    }
+    for k, v in replacements.items():
+        txt = txt.replace(k, v)
+
+    # Dejar solo dígitos, espacios y y/m/d
+    allowed = u"0123456789 ymd"
+    txt = u"".join([c for c in txt if c in allowed])
+
+    # Compactar espacios múltiples
+    txt = u" ".join(txt.split())
+
+    # Patrones típicos que podrían quedar: "12y 3m 4d", "12y", "8m 2d"...
+    return txt
+
+
 class PatientEditForm(EditFormAdapterBase):
     """Edit form for Patient content type
 
     Reglas:
     - La Edad SIEMPRE se calcula desde la Fecha de Nacimiento (estimada o exacta).
-    - En cuanto hay fecha -> mostrar Edad y recalcular.
-    - Si marcan "fecha estimada" sin fecha aún -> mostrar Edad (vacía hasta que haya fecha).
-    - Edad es de "solo lectura lógica": se ignoran ediciones manuales.
+    - En cuanto hay fecha -> calcular y mostrar Edad automáticamente.
+    - 'Edad' se trata como solo-lectura lógica: se ignoran ediciones manuales.
     """
 
     # ----------------------
@@ -71,14 +123,12 @@ class PatientEditForm(EditFormAdapterBase):
         # Ajusta visibilidad y, si ya hay fecha, calcula
         self.toggle_and_update_fields(form, estimated_birthdate)
         self._recalc_if_possible(form)
-        # Reforzar visibilidad coherente tras posibles recálculos
         self._enforce_visibility(estimated_birthdate, form)
         return self.data
 
     def added(self, data):
-        """Algunos widgets disparan 'added' al cerrar el datepicker o al setear partes."""
+        """Algunos widgets disparan 'added' al cerrar el datepicker o setear partes."""
         form = data.get("form")
-        # recalcular si ya hay fecha y asegurar visibilidad
         self._recalc_if_possible(form)
         estimated_birthdate = form.get(ESTIMATED_BIRTHDATE_FIELDS[1])
         if estimated_birthdate is None:
@@ -103,7 +153,6 @@ class PatientEditForm(EditFormAdapterBase):
             bd = self._get_birthdate_from_form(form)
             if bd:
                 self.update_age_field_from_birthdate(bd)
-            # Respetar visibilidad según estado actual de "estimada"
             estimated_birthdate = form.get(ESTIMATED_BIRTHDATE_FIELDS[1])
             if estimated_birthdate is None:
                 estimated_birthdate = form.get(ESTIMATED_BIRTHDATE_FIELDS[0])
@@ -121,18 +170,18 @@ class PatientEditForm(EditFormAdapterBase):
             self._enforce_visibility(estimated_birthdate, form)
             return self.data
 
-        # Fallback: si no entra en ninguno, recalcular si hay fecha
+        # Fallback
         self._recalc_if_possible(form)
         return self.data
 
     # ----------------------
-    # API de cálculo
+    # Cálculo y seteo de Edad
     # ----------------------
     def update_age_field_from_birthdate(self, birthdate):
-        """Calcula y setea Edad desde la fecha (formato Y/M/D)."""
-        age = dtime.get_ymd(birthdate)
-        age = safe_unicode(age)
-        self.add_update_field(AGE_FIELD, age)
+        """Calcula la Edad desde la fecha y la deja en ASCII seguro ('12y 3m 4d')."""
+        raw_age = dtime.get_ymd(birthdate)
+        safe_age = _to_ascii_age(raw_age)  # <- clave para evitar UnicodeDecodeError
+        self.add_update_field(AGE_FIELD, safe_age)
 
     # ----------------------
     # Visibilidad y sincronización
@@ -199,7 +248,7 @@ class PatientEditForm(EditFormAdapterBase):
             self.add_show_field(BIRTHDATE_FIELDS[0])
 
     def _enforce_visibility(self, estimated_birthdate, form=None):
-        """Aplica visibilidad final: con fecha -> ambos; sin fecha -> Edad solo si 'estimada'."""
+        """Con fecha -> ambos visibles; sin fecha -> Edad solo si 'estimada'."""
         bd = self._get_birthdate_from_form(form) if form else None
         if bd:
             self.add_show_field(AGE_FIELD)
