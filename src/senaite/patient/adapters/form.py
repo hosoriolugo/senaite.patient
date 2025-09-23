@@ -262,204 +262,114 @@ class PatientEditForm(EditFormAdapterBase):
 
         self.add_show_field(BIRTHDATE_FIELDS[0])
 
-# ==========================================================
-# COMPLEMENTO PARA AR: SOLO EDAD (NO TOCA FECHA DE NACIMIENTO)
-# Pegar desde aquí hasta el final del archivo
-# ==========================================================
+# =========================
+# ==== AR: SOLO EDAD  =====
+# =========================
 
-# Import local por si no existe arriba (no pasa nada si ya está importado)
-try:
-    from bika.lims import api  # resolver paciente por UID
-except Exception:
-    api = None  # si tu entorno no tiene bika.lims aquí, ajusta el import según tu stack
+from bika.lims import api as _bika_api
 
-# Candidatos de widgets en AR (ajusta si tus IDs difieren)
-_AR_PATIENT_WIDGETS = [
-    "form.widgets.Patient",
-    "form.widgets.patient",
-]
+# Nombres de campos en el add de AR (según widgets estándar)
+_AR_PATIENT_FIELD = "MedicalRecordNumber-0"   # selector de paciente (UID)
+# Posibles nombres del campo "Edad" en AR: dejamos varios por robustez
+_AR_AGE_FIELDS = (
+    "form.widgets.age-0",
+    "form.widgets.Age-0",
+    "form.widgets.patient_age-0",
+    "form.widgets.age",       # fallback
+)
+# Posibles campos de fecha de muestreo
+_AR_SAMPLING_FIELDS = (
+    "form.widgets.DateSampled-0",
+    "form.widgets.SamplingDate-0",
+    "form.widgets.SamplingDate",   # fallback
+)
 
-_AR_SAMPLING_DATE_WIDGETS = [
-    "form.widgets.SamplingDate",
-    "form.widgets.SamplingDate-date",
-    "form.widgets.DateSampled",
-    "form.widgets.DateSampled-date",
-]
+def _upper_ymd(s):
+    if not s:
+        return s
+    return (u"{}".format(s)).replace(u"y", u"Y").replace(u"m", u"M").replace(u"d", u"D")
 
-# Campo de edad unificado (si existe en tu AR)
-_AR_AGE_SINGLE_WIDGETS = [
-    "form.widgets.patient_age",
-    "form.widgets.Age",
-]
-
-# Campos de edad separados (Years / Months / Days)
-_AR_AGE_Y_WIDGETS = [
-    "form.widgets.patient_age_years",
-    "form.widgets.PatientAgeYears",
-]
-_AR_AGE_M_WIDGETS = [
-    "form.widgets.patient_age_months",
-    "form.widgets.PatientAgeMonths",
-]
-_AR_AGE_D_WIDGETS = [
-    "form.widgets.patient_age_days",
-    "form.widgets.PatientAgeDays",
-]
-
-
-def _first_present_key(form, keys):
-    """Devuelve la primera clave presente en el dict form de una lista de candidatos."""
+def _get_first_form_value(form, keys):
     for k in keys:
-        if k in form and form.get(k) not in (None, u"", ""):
-            return k
+        v = form.get(k)
+        if v:
+            return v
     return None
-
-
-def _get_value_by_any(form, keys):
-    """Devuelve el primer valor no vacío de las claves candidatas."""
-    k = _first_present_key(form, keys)
-    return form.get(k) if k else None
-
-
-def _split_age_YMD(age_txt):
-    """Convierte '20Y 2M 14D', '67Y', '8M 2D' en (Y, M, D) como enteros o None."""
-    if not age_txt:
-        return (None, None, None)
-    txt = safe_unicode(age_txt).upper().strip()
-    parts = [p for p in txt.replace(u"  ", u" ").split(u" ") if p]
-    y = m = d = None
-    for token in parts:
-        if token.endswith(u"Y"):
-            try:
-                y = int(token[:-1])
-            except Exception:
-                pass
-        elif token.endswith(u"M"):
-            try:
-                m = int(token[:-1])
-            except Exception:
-                pass
-        elif token.endswith(u"D"):
-            try:
-                d = int(token[:-1])
-            except Exception:
-                pass
-    return (y, m, d)
-
-
-def _get_sampling_date_from_form(form):
-    """Intenta leer la fecha de muestreo del form, o reconstruir de year/month/day."""
-    sd = _get_value_by_any(form, _AR_SAMPLING_DATE_WIDGETS)
-    if sd:
-        try:
-            if dtime.is_dt(sd):
-                return sd.date()
-            if isinstance(sd, basestring):
-                return dtime.to_DT(sd).date()
-            return sd  # date ya es válido
-        except Exception:
-            pass
-
-    # Reconstrucción por partes
-    for base in ("form.widgets.SamplingDate", "form.widgets.DateSampled"):
-        y = form.get(base + "-year")
-        m = form.get(base + "-month")
-        d = form.get(base + "-day")
-        if y and m and d:
-            try:
-                return dtime.datetime(int(str(y)), int(str(m)), int(str(d))).date()
-            except Exception:
-                return None
-    return None
-
-
-def _get_patient_obj_from_form(form):
-    """Obtiene el objeto Paciente desde un RelationChoice del form (valor suele ser UID)."""
-    uid = _get_value_by_any(form, _AR_PATIENT_WIDGETS)
-    if not uid:
-        return None
-
-    # Algunas configuraciones envían el objeto directamente
-    if getattr(uid, "portal_type", "").lower().endswith("patient"):
-        return uid
-
-    # Intentar por UID (requiere api)
-    if api is not None:
-        try:
-            obj = api.get_object_by_uid(uid)
-            if obj and getattr(obj, "portal_type", "").lower().endswith("patient"):
-                return obj
-        except Exception:
-            return None
-    return None
-
 
 class AnalysisRequestEditForm(EditFormAdapterBase):
-    """Adapter para AR: SOLO EDAD. No escribe fecha de nacimiento."""
+    """Adapter para AR (solo edad). No toca DOB porque AR ya lo carga nativamente."""
 
     def initialized(self, data):
-        form = data.get("form", {})
-        self._refresh_age_only(form)
+        # Si ya hay paciente preseleccionado al entrar, calcula edad
+        form = data.get("form") or {}
+        self._update_age_from_current_state(form)
         return self.data
 
     def added(self, data):
-        form = data.get("form", {})
-        self._refresh_age_only(form)
+        # Recalcula si cambian otros widgets que disparan 'added'
+        form = data.get("form") or {}
+        self._update_age_from_current_state(form)
         return self.data
 
     def modified(self, data):
         name = data.get("name")
-        form = data.get("form", {})
+        form = data.get("form") or {}
 
-        # Cambio de Paciente
-        if name in _AR_PATIENT_WIDGETS:
-            self._refresh_age_only(form)
+        # Cuando el usuario selecciona paciente
+        if name == _AR_PATIENT_FIELD:
+            self._update_age_from_current_state(form)
             return self.data
 
-        # Cambio en fecha de muestreo (campo completo o subcampos -year/-month/-day)
-        if (name in _AR_SAMPLING_DATE_WIDGETS) or (name or "").startswith("form.widgets.SamplingDate-") \
-           or (name or "").startswith("form.widgets.DateSampled-"):
-            self._refresh_age_only(form)
+        # Cuando cambian la fecha de muestreo, actualiza edad a esa fecha
+        if name in _AR_SAMPLING_FIELDS or (name or "").startswith("form.widgets.SamplingDate-"):
+            self._update_age_from_current_state(form)
             return self.data
 
-        # Fallback
-        self._refresh_age_only(form)
         return self.data
 
-    # ------------------
-    # Lógica: solo Edad
-    # ------------------
-    def _refresh_age_only(self, form):
-        patient = _get_patient_obj_from_form(form)
+    # ----------------------
+    # Lógica central
+    # ----------------------
+    def _update_age_from_current_state(self, form):
+        """Lee paciente + fecha muestreo y escribe la EDAD en el/los campo(s) de AR."""
+        # 1) Resolver paciente desde el selector (UID)
+        patient_uid = form.get(_AR_PATIENT_FIELD)
+        patient = None
+        if patient_uid:
+            try:
+                patient = _bika_api.get_object_by_uid(patient_uid)
+            except Exception:
+                patient = None
+
+        # Sin paciente => no hacemos nada
         if not patient:
             return
 
-        # Fecha de referencia: SamplingDate si existe; si no, hoy
-        ref_date = _get_sampling_date_from_form(form) or dtime.today().date()
+        # 2) Fecha de referencia para la edad: SamplingDate si existe, si no hoy
+        ref_date = _get_first_form_value(form, _AR_SAMPLING_FIELDS)
+        # Los widgets a veces pasan string; intentamos formatear a date/datetime
+        if ref_date:
+            try:
+                # dtime.to_DT es robusto con strings/fechas
+                ref_dt = dtime.to_DT(ref_date)
+            except Exception:
+                ref_dt = None
+        else:
+            ref_dt = dtime.to_DT(dtime.now())
 
-        # Edad del paciente a la fecha de referencia
-        # (usa la API del objeto Patient; devuelve algo como "20Y 2M 14D" o "67Y")
+        # 3) Calcular edad con helper del Patient (ya la tienes en tu Patient)
         try:
-            age_txt = patient.getAgeAt(ref_date=ref_date)
+            age_txt = patient.getAgeAt(ref_dt) if ref_dt else patient.getAge()
         except Exception:
-            # fallback defensivo
-            dob = getattr(patient, "getBirthdate", lambda *a, **k: None)()
-            age_txt = dtime.get_ymd(dob, ref_date=ref_date) if dob else u""
+            # Fallback directo con dtime
+            try:
+                dob = patient.getBirthdate()
+                age_txt = dtime.get_ymd(dob, ref_date=ref_dt) if ref_dt else dtime.get_ymd(dob)
+            except Exception:
+                age_txt = u""
 
-        # Escribir en campo unificado si existe
-        age_single_key = _first_present_key(form, _AR_AGE_SINGLE_WIDGETS)
-        if age_single_key:
-            self.add_update_field(age_single_key, age_txt or u"")
+        age_txt = _upper_ymd(age_txt or u"")
 
-        # Escribir en campos separados si existen
-        y, m, d = _split_age_YMD(age_txt)
-        y_key = _first_present_key(form, _AR_AGE_Y_WIDGETS)
-        m_key = _first_present_key(form, _AR_AGE_M_WIDGETS)
-        d_key = _first_present_key(form, _AR_AGE_D_WIDGETS)
-        if y_key:
-            self.add_update_field(y_key, u"" if y is None else y)
-        if m_key:
-            self.add_update_field(m_key, u"" if m is None else m)
-        if d_key:
-            self.add_update_field(d_key, u"" if d is None else d)
-
+        # 4) Volcar la edad en los posibles campos del formulario
+        for age_field in _AR_AGE_FIELDS:
+            self.add_update_field(age_field, age_txt)
