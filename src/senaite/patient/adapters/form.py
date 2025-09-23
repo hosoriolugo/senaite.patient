@@ -51,6 +51,12 @@ def safe_unicode(value, encoding="utf-8"):
 
 class PatientEditForm(EditFormAdapterBase):
     """Edit form for Patient content type
+
+    Reglas:
+    - La Edad SIEMPRE se calcula desde la Fecha de Nacimiento (estimada o exacta).
+    - En cuanto hay fecha -> mostrar Edad y recalcular.
+    - Si marcan "fecha estimada" sin fecha aún -> mostrar Edad (quedará vacía hasta que haya fecha).
+    - Edad es de "solo lectura lógica": se ignoran ediciones manuales.
     """
 
     # ----------------------
@@ -61,9 +67,12 @@ class PatientEditForm(EditFormAdapterBase):
         estimated_birthdate = form.get(ESTIMATED_BIRTHDATE_FIELDS[1])
         if estimated_birthdate is None:
             estimated_birthdate = form.get(ESTIMATED_BIRTHDATE_FIELDS[0])
+
+        # Ajusta visibilidad y, si ya hay fecha, calcula
         self.toggle_and_update_fields(form, estimated_birthdate)
-        # Si ya hay fecha, calcula edad para dejar el formulario consistente
         self._recalc_if_possible(form)
+        # Reforzar visibilidad coherente tras posibles recálculos
+        self._enforce_visibility(estimated_birthdate, form)
         return self.data
 
     def modified(self, data):
@@ -71,73 +80,77 @@ class PatientEditForm(EditFormAdapterBase):
         form = data.get("form")
         value = data.get("value")
 
-        # Cambio en checkbox de "fecha estimada"
+        # Cambio en checkbox "fecha estimada"
         if name in ESTIMATED_BIRTHDATE_FIELDS:
             self.toggle_and_update_fields(form, value)
-            # También recalcular por si ya hay fecha
             self._recalc_if_possible(form)
+            self._enforce_visibility(value, form)
             return self.data
 
-        # Cualquier cambio en fecha de nacimiento (campo o subcampos del widget)
+        # Cualquier cambio en fecha de nacimiento (campo o subcampos)
         if self._is_birthdate_field(name):
-            birthdate = form.get(BIRTHDATE_FIELDS[0]) or form.get(BIRTHDATE_FIELDS[1])
-            if birthdate:
-                self.update_age_field_from_birthdate(birthdate)
-            # Respetar visibilidad vigente según "estimada"
+            bd = self._get_birthdate_from_form(form)
+            if bd:
+                self.update_age_field_from_birthdate(bd)
+            # Respetar visibilidad según estado actual de "estimada"
             estimated_birthdate = form.get(ESTIMATED_BIRTHDATE_FIELDS[1])
             if estimated_birthdate is None:
                 estimated_birthdate = form.get(ESTIMATED_BIRTHDATE_FIELDS[0])
-            self._enforce_visibility(estimated_birthdate)
+            self._enforce_visibility(estimated_birthdate, form)
             return self.data
 
-        # Si alguien edita la edad manualmente, regenerar fecha (si es YMD válido)
+        # Intento de editar la Edad manualmente -> ignorar y recalcular desde la fecha
         if name == AGE_FIELD:
-            age = form.get(AGE_FIELD)
-            if dtime.is_ymd(age):
-                self.update_birthdate_field_from_age(age)
+            bd = self._get_birthdate_from_form(form)
+            if bd:
+                self.update_age_field_from_birthdate(bd)
             # Mantener visibilidad conforme a "estimada"
             estimated_birthdate = form.get(ESTIMATED_BIRTHDATE_FIELDS[1])
             if estimated_birthdate is None:
                 estimated_birthdate = form.get(ESTIMATED_BIRTHDATE_FIELDS[0])
-            self._enforce_visibility(estimated_birthdate)
+            self._enforce_visibility(estimated_birthdate, form)
             return self.data
 
-        # Fallback: si no es ninguno de los anteriores, intenta recalcular si hay fecha
+        # Fallback: si no entra en ninguno, recalcular si hay fecha
         self._recalc_if_possible(form)
         return self.data
 
     # ----------------------
-    # API original + ajustes
+    # API de cálculo
     # ----------------------
     def update_age_field_from_birthdate(self, birthdate):
-        # dtime.get_ymd devuelve la edad en formato 'Yy Mm Dd' (dependiendo de locale)
+        """Calcula y setea Edad desde la fecha (formato Y/M/D)."""
         age = dtime.get_ymd(birthdate)
-        age = safe_unicode(age)  # asegurar unicode para evitar UnicodeDecodeError en Py2
+        age = safe_unicode(age)
         self.add_update_field(AGE_FIELD, age)
 
-    def update_birthdate_field_from_age(self, age):
-        birthdate = dtime.get_since_date(age)
-        birthdate_str = dtime.date_to_string(birthdate)
-        for field in BIRTHDATE_FIELDS:
-            self.add_update_field(field, birthdate_str)
+    # Eliminamos el flujo inverso (Edad -> Fecha) para reforzar el "solo lectura".
+    # Si alguna vez lo necesitas de nuevo, reintroduce update_birthdate_field_from_age.
 
+    # ----------------------
+    # Visibilidad y sincronización
+    # ----------------------
     def toggle_and_update_fields(self, form, estimated_birthdate):
-        """Toggle age and birthdate fields that depend on estimated_birthdate"""
+        """Visibilidad coherente en función de si hay fecha y/o si está marcada 'estimada'."""
         is_estimated = estimated_birthdate in TRUTHY
-        if is_estimated:
-            # Con fecha estimada: mostrar AGE, ocultar DATE
-            birthdate = form.get(BIRTHDATE_FIELDS[0]) or form.get(BIRTHDATE_FIELDS[1])
-            if birthdate:
-                self.update_age_field_from_birthdate(birthdate)
+        bd = self._get_birthdate_from_form(form)
+
+        if bd:
+            # Si hay fecha: calcular y mostrar ambos campos
+            self.update_age_field_from_birthdate(bd)
             self.add_show_field(AGE_FIELD)
-            self.add_hide_field(BIRTHDATE_FIELDS[0])
-        else:
-            # Con fecha exacta: mostrar DATE, ocultar AGE
-            age = form.get(AGE_FIELD)
-            if dtime.is_ymd(age):
-                self.update_birthdate_field_from_age(age)
             self.add_show_field(BIRTHDATE_FIELDS[0])
+            return
+
+        # No hay fecha aún:
+        # - si es estimada, mostrar Edad (vacía hasta que carguen fecha)
+        if is_estimated:
+            self.add_show_field(AGE_FIELD)
+        else:
             self.add_hide_field(AGE_FIELD)
+
+        # Birthdate siempre visible para que puedan cargarla
+        self.add_show_field(BIRTHDATE_FIELDS[0])
 
     # ----------------------
     # Helpers internos
@@ -147,20 +160,49 @@ class PatientEditForm(EditFormAdapterBase):
             return False
         if name in BIRTHDATE_FIELDS:
             return True
-        # subcampos típicos del datepicker: -year, -month, -day, etc.
+        # subcampos del datepicker: -year, -month, -day, etc.
         return name.startswith("form.widgets.birthdate-")
 
-    def _recalc_if_possible(self, form):
+    def _get_birthdate_from_form(self, form):
+        """Obtiene la fecha desde las claves estándar o la reconstruye de year/month/day."""
         bd = form.get(BIRTHDATE_FIELDS[0]) or form.get(BIRTHDATE_FIELDS[1])
         if bd:
-            self.update_age_field_from_birthdate(bd)
+            return bd
 
-    def _enforce_visibility(self, estimated_birthdate):
-        """Aplica únicamente la visibilidad ya acordada, sin recalcular nada."""
-        is_estimated = estimated_birthdate in TRUTHY
-        if is_estimated:
+        # Reconstrucción desde partes si el widget las usa
+        y = form.get("form.widgets.birthdate-year")
+        m = form.get("form.widgets.birthdate-month")
+        d = form.get("form.widgets.birthdate-day")
+        if y and m and d:
+            try:
+                y_i = int(str(y))
+                m_i = int(str(m))
+                d_i = int(str(d))
+                # dtime expone datetime; usamos su date para consistencia
+                return dtime.datetime(y_i, m_i, d_i).date()
+            except Exception:
+                return None
+        return None
+
+    def _recalc_if_possible(self, form):
+        bd = self._get_birthdate_from_form(form)
+        if bd:
+            self.update_age_field_from_birthdate(bd)
+            # Mostrar ambos cuando hay fecha
             self.add_show_field(AGE_FIELD)
-            self.add_hide_field(BIRTHDATE_FIELDS[0])
-        else:
             self.add_show_field(BIRTHDATE_FIELDS[0])
+
+    def _enforce_visibility(self, estimated_birthdate, form=None):
+        """Aplica visibilidad final: con fecha -> ambos; sin fecha -> Edad solo si 'estimada'."""
+        bd = self._get_birthdate_from_form(form) if form else None
+        if bd:
+            self.add_show_field(AGE_FIELD)
+            self.add_show_field(BIRTHDATE_FIELDS[0])
+            return
+
+        if estimated_birthdate in TRUTHY:
+            self.add_show_field(AGE_FIELD)
+        else:
             self.add_hide_field(AGE_FIELD)
+
+        self.add_show_field(BIRTHDATE_FIELDS[0])
