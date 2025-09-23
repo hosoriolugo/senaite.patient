@@ -165,7 +165,6 @@ class IPatientSchema(model.Schema):
         required=False,
     )
 
-
     # --- Added field: maternal_lastname ---
     maternal_lastname = schema.TextLine(
         title=_(u"label_patient_maternal_lastname", default=u"Maternal Lastname"),
@@ -337,6 +336,24 @@ class IPatientSchema(model.Schema):
         default=False,
         required=False,
     )
+
+    # --- Patient Age (campo de formulario) ---
+    # Mostrar el campo inmediatamente después de 'birthdate'
+    directives.order_after(age='birthdate')
+
+    age = schema.TextLine(
+        title=_(u"label_patient_age", default=u"Age"),
+        description=_(
+            u"description_patient_age",
+            default=(
+                u"Age in YMD format. Examples: '45Y 3M 20D', '67Y'. "
+                u"If 'Birthdate is estimated' is checked, the system will "
+                u"convert this age to a birthdate on save."
+            )
+        ),
+        required=False,
+    )
+    # --- fin Patient Age ---
 
     deceased = schema.Bool(
         title=_(
@@ -647,7 +664,6 @@ class Patient(Container):
     def getPatientFullName(self):
         # Alias para compatibilidad: usa el conector nativo
         return self.getFullname()
-
 
     ###
     # EMAIL AND PHONE
