@@ -1,4 +1,4 @@
-<configure
+  <configure
     xmlns="http://namespaces.zope.org/zope"
     i18n_domain="senaite.patient">
 
@@ -47,7 +47,7 @@
     provides="senaite.app.listing.interfaces.IListingViewAdapter"
     factory=".listing.SamplesListingAdapter" />
 
-  <!-- Listing adapter for patient samles -->
+  <!-- Listing adapter for patient samples -->
   <subscriber
     for="senaite.patient.browser.patient.samples.SamplesView
          senaite.patient.interfaces.IPatient"
@@ -66,5 +66,21 @@
       for="senaite.patient.interfaces.IPatient
            senaite.patient.interfaces.ISenaitePatientLayer"
       factory=".form.PatientEditForm"/>
+
+  <!-- AR (Analysis Request): handler SOLO para EDAD.
+       Reutiliza el mismo módulo adapters/form.py sin tocar la fecha de nacimiento. -->
+
+  <!-- Alta de AR (vista de add) -->
+  <adapter
+      for="*
+           senaite.patient.interfaces.ISenaitePatientLayer"
+      name="++add++AnalysisRequest"
+      factory=".form.AnalysisRequestEditForm" />
+
+  <!-- Edición de AR -->
+  <adapter
+      for="bika.lims.interfaces.IAnalysisRequest
+           senaite.patient.interfaces.ISenaitePatientLayer"
+      factory=".form.AnalysisRequestEditForm" />
 
 </configure>
