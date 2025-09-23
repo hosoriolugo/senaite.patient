@@ -535,10 +535,10 @@ class Patient(Container):
 
     @security.protected(permissions.ModifyPortalContent)
     def setIdentifiers(self, value):
-        """Set identifiers by the field accessor
-        """
+        """Set identifiers by the field accessor, ignoring empty rows"""
         mutator = self.mutator("identifiers")
-        return mutator(self, value)
+        normalized = _normalize_identifiers(value)
+        return mutator(self, normalized)
 
     @security.protected(permissions.View)
     def getRaces(self):
@@ -904,3 +904,48 @@ class Patient(Container):
             return u""
         return dtime.get_ymd(dob, ref_date=ref_date) or u""
     # --- end helper ---
+
+
+# --- helpers para sanitizar Identificadores (pegar al final de patient.py) ---
+
+def _is_empty_identifier_row(row):
+    """Devuelve True si la fila está vacía (sin tipo ni ID)."""
+    try:
+        key = (row.get("key") or u"").strip()
+        val = (row.get("value") or u"").strip()
+        return not key and not val
+    except Exception:
+        # Si no es un dict o viene mal formado, lo tratamos como vacío/descartable
+        return True
+
+
+def _normalize_identifiers(value):
+    """Limpia el DataGrid de identificadores:
+    - Omite NO_VALUE, None y filas vacías
+    - Asegura que 'key' y 'value' sean unicode y sin espacios sobrantes
+    """
+    if not value:
+        return []
+
+    cleaned = []
+    for row in value:
+        # Omitir registros nulos o tipos extraños
+        if row in (None, NO_VALUE) or not isinstance(row, dict):
+            continue
+
+        # Omitir filas vacías (widget suele auto-agregar una)
+        if _is_empty_identifier_row(row):
+            continue
+
+        key = api.safe_unicode(row.get("key", u"")).strip()
+        val = api.safe_unicode(row.get("value", u"")).strip()
+
+        # Si tras normalizar ambos quedan vacíos, omitir
+        if not key and not val:
+            continue
+
+        cleaned.append({"key": key, "value": val})
+
+    return cleaned
+
+# --- fin helpers ---
