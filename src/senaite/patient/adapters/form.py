@@ -51,6 +51,19 @@ class PatientEditForm(EditFormAdapterBase):
         if estimated is None:
             estimated = form.get(ESTIMATED_BIRTHDATE_FIELDS[0])
         self._sync_fields(form, estimated)
+        # Fallback: si ya hay fecha, calcula
+        self._recalc_if_possible(form)
+        return self.data
+
+    def added(self, data):
+        """Algunos widgets (datepicker) disparan 'added' al inicializar/cambiar internamente.
+        Recalculamos aquí también para no depender únicamente de 'modified'."""
+        form = data.get("form")
+        estimated = form.get(ESTIMATED_BIRTHDATE_FIELDS[1])
+        if estimated is None:
+            estimated = form.get(ESTIMATED_BIRTHDATE_FIELDS[0])
+        self._sync_fields(form, estimated)
+        self._recalc_if_possible(form)
         return self.data
 
     def modified(self, data):
@@ -61,6 +74,7 @@ class PatientEditForm(EditFormAdapterBase):
         # Cambios en el checkbox "estimated" -> recalcula desde la fecha que haya
         if name in ESTIMATED_BIRTHDATE_FIELDS:
             self._sync_fields(form, value)
+            self._recalc_if_possible(form)
             return self.data
 
         # Cualquier cambio relacionado con la fecha de nacimiento (incluye subcampos -year/-month/-day)
@@ -75,6 +89,8 @@ class PatientEditForm(EditFormAdapterBase):
             self._show_all()
             return self.data
 
+        # Fallback: aunque 'name' no sea ninguno de los anteriores, si hay DoB -> recalcular
+        self._recalc_if_possible(form)
         return self.data
 
     # ----------------------
@@ -106,14 +122,11 @@ class PatientEditForm(EditFormAdapterBase):
         d = form.get("form.widgets.birthdate-day")
         if y and m and d:
             try:
-                # Normaliza a enteros por si llegan como strings con ceros a la izquierda
                 y_i = int(str(y))
                 m_i = int(str(m))
                 d_i = int(str(d))
-                # Construye una fecha; get_ymd acepta date/datetime
                 return dtime.datetime(y_i, m_i, d_i).date()
             except Exception:
-                # Si no se puede construir, devolvemos None y dejamos que no actualice
                 return None
 
         return None
@@ -128,8 +141,15 @@ class PatientEditForm(EditFormAdapterBase):
         # Siempre mostrar ambos campos
         self._show_all()
 
-        # Siempre calcular Age desde Birthdate si ya hay valor (buscando en todas las variantes)
+        # Si ya hay fecha, calcula Age
         birthdate = self._get_birthdate_from_form(form)
         if birthdate:
             self._update_age_from_birthdate(birthdate)
         # 'estimated_flag' queda disponible para que la plantilla muestre el aviso.
+
+    def _recalc_if_possible(self, form):
+        """Recalcula la edad si hay fecha disponible, aunque el evento no sea de DoB."""
+        bd = self._get_birthdate_from_form(form)
+        if bd:
+            self._update_age_from_birthdate(bd)
+            self._show_all()
