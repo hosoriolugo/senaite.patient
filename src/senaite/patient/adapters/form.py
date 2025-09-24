@@ -263,27 +263,30 @@ class PatientEditForm(EditFormAdapterBase):
         self.add_show_field(BIRTHDATE_FIELDS[0])
 
 # =========================
-# ==== AR: SOLO EDAD  =====
+# ==== PARTE DE AR (ANALYSIS REQUEST) ====
 # =========================
 
-from bika.lims import api
-
-# CAMPOS CORREGIDOS BASADOS EN EL LOG
-_AR_PATIENT_FIELD = "MedicalRecordNumber-0"  # Campo del paciente (MRN)
+# CAMPOS EXACTOS DEL FORMULARIO DE AR (confirmados en tu log)
+_AR_PATIENT_FIELD = "MedicalRecordNumber-0"  # Campo que contiene el UID del paciente
 _AR_AGE_FIELD = "Age-0"  # Campo de edad en el AR
 _AR_SAMPLING_DATE_FIELD = "DateSampled-0"  # Campo de fecha de muestreo
 
 class AnalysisRequestEditForm(EditFormAdapterBase):
-    """Adapter para AR - Actualización automática de edad al seleccionar paciente"""
+    """Adapter para AR - Actualización automática de edad"""
 
     def initialized(self, data):
         """Al inicializar el formulario"""
+        logger.info("🎯 === AR FORM INITIALIZED ===")
+        logger.info("🎯 Context: %s", self.context)
+        logger.info("🎯 Request: %s", self.request)
         form = data.get("form", {})
+        logger.info("🎯 Form keys: %s", form.keys())
         self._update_ar_age(form)
         return self.data
 
     def added(self, data):
         """Cuando se agregan elementos"""
+        logger.info("🎯 === AR FORM ADDED ===")
         form = data.get("form", {})
         self._update_ar_age(form)
         return self.data
@@ -292,62 +295,80 @@ class AnalysisRequestEditForm(EditFormAdapterBase):
         """Cuando se modifican campos"""
         name = data.get("name")
         form = data.get("form", {})
+        value = data.get("value")
+
+        logger.info("🎯 === AR FORM MODIFIED ===")
+        logger.info("🎯 Field name: %s", name)
+        logger.info("🎯 Field value: %s", value)
+        logger.info("🎯 All form keys: %s", form.keys())
 
         # Si cambia el paciente O la fecha de muestreo, actualizar edad
         if name in [_AR_PATIENT_FIELD, _AR_SAMPLING_DATE_FIELD]:
+            logger.info("🎯 Campo relevante modificado, actualizando edad...")
             self._update_ar_age(form)
+        else:
+            logger.info("🎯 Campo no relevante: %s", name)
             
         return self.data
 
     def _update_ar_age(self, form):
         """Actualiza el campo de edad en el AR basado en el paciente seleccionado"""
         try:
-            # Obtener paciente del formulario
+            logger.info("🎯 === INICIANDO ACTUALIZACION DE EDAD EN AR ===")
+            
+            # 1. Obtener UID del paciente desde el campo MedicalRecordNumber-0
             patient_uid = form.get(_AR_PATIENT_FIELD)
+            logger.info("🎯 Patient UID from form: %s", patient_uid)
+            
             if not patient_uid:
+                logger.info("🎯 No hay patient UID, saliendo...")
                 return
                 
+            # 2. Obtener el objeto paciente
             patient = api.get_object_by_uid(patient_uid)
             if not patient:
+                logger.info("🎯 No se pudo obtener el paciente con UID: %s", patient_uid)
                 return
                 
-            # Obtener fecha de referencia (muestreo o actual)
-            sampling_date = form.get(_AR_SAMPLING_DATE_FIELD)
-            ref_date = dtime.to_DT(sampling_date) if sampling_date else dtime.to_DT(dtime.now())
-            
-            # Calcular edad
-            age_text = self._calculate_patient_age(patient, ref_date)
-            if age_text:
-                # Actualizar campo de edad en el formulario
-                self.add_update_field(_AR_AGE_FIELD, age_text)
+            logger.info("🎯 Paciente obtenido: %s", patient)
                 
-        except Exception:
-            # Silenciar errores para no interrumpir el flujo
-            pass
-
-    def _calculate_patient_age(self, patient, ref_date=None):
-        """Calcula la edad del paciente en formato estándar"""
-        try:
-            # Intentar usar el método del paciente primero
+            # 3. Obtener fecha de referencia (muestreo o actual)
+            sampling_date = form.get(_AR_SAMPLING_DATE_FIELD)
+            logger.info("🎯 Sampling date from form: %s", sampling_date)
+            
+            if sampling_date:
+                ref_date = dtime.to_DT(sampling_date)
+            else:
+                ref_date = dtime.to_DT(dtime.now())
+            
+            logger.info("🎯 Fecha de referencia: %s", ref_date)
+            
+            # 4. Calcular edad usando el método del paciente
             if hasattr(patient, 'getAgeAt') and ref_date:
-                age = patient.getAgeAt(ref_date)
+                age_text = patient.getAgeAt(ref_date)
             elif hasattr(patient, 'getAge'):
-                age = patient.getAge()
+                age_text = patient.getAge()
             else:
                 # Fallback: calcular desde fecha de nacimiento
                 birthdate = getattr(patient, 'getBirthdate', lambda: None)()
-                if birthdate and ref_date:
-                    age = dtime.get_ymd(birthdate, ref_date=ref_date)
+                if birthdate:
+                    age_text = dtime.get_ymd(birthdate, ref_date=ref_date)
                 else:
-                    age = ""
+                    age_text = ""
             
-            # Asegurar formato consistente (años, meses, días)
-            if age:
-                age = _to_ascii_age(age)
-                # Convertir a mayúsculas para consistencia (12Y 3M 4D)
-                age = age.replace('y', 'Y').replace('m', 'M').replace('d', 'D')
+            logger.info("🎯 Edad calculada: %s", age_text)
             
-            return age
-            
-        except Exception:
-            return ""
+            # 5. Formatear la edad correctamente
+            if age_text:
+                age_text = _to_ascii_age(age_text)
+                age_text = age_text.replace('y', 'Y').replace('m', 'M').replace('d', 'D')
+                logger.info("🎯 Edad formateada: %s", age_text)
+                
+                # 6. Actualizar el campo de edad en el formulario
+                logger.info("🎯 Actualizando campo %s con valor: %s", _AR_AGE_FIELD, age_text)
+                self.add_update_field(_AR_AGE_FIELD, age_text)
+            else:
+                logger.info("🎯 No se pudo calcular la edad")
+                
+        except Exception as e:
+            logger.error("🎯 Error actualizando edad en AR: %s", str(e))
