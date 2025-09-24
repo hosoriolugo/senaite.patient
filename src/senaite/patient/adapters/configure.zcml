@@ -9,8 +9,7 @@
     factory=".guards.SampleGuardAdapter"
     name="senaite.patient.adapter.guard.sample" />
 
-  <!-- Group Key Provider to allow only 1 Patient per Report
-       https://github.com/senaite/senaite.impress/pull/145 -->
+  <!-- Group Key Provider to allow only 1 Patient per Report -->
   <adapter factory=".impress.GroupKeyProvider" />
 
   <!-- Visibility of Gender field -->
@@ -20,8 +19,7 @@
       for="*"
       name="senaite.patient.adapter.widgetvisibility.gender" />
 
-  <!-- Dynamic Results Range Adapter
-       Looked up in `abstractroutineanalysis.getResultsRange` -->
+  <!-- Dynamic Results Range Adapter -->
   <adapter
       for="senaite.patient.interfaces.IRoutineAnalysis"
       factory=".dynamicresultsrange.PatientDynamicResultsRange"
@@ -60,28 +58,20 @@
            senaite.patient.interfaces.ISenaitePatientLayer"
       name="++add++Patient"
       factory=".form.PatientEditForm"/>
-  
+
   <!-- Patient: edit form handler -->
   <adapter
       for="senaite.patient.interfaces.IPatient
            senaite.patient.interfaces.ISenaitePatientLayer"
       factory=".form.PatientEditForm"/>
 
-  <!-- AR (Analysis Request): handler SOLO para EDAD.
-       Importante: la vista de alta real es 'ar_add' y los endpoints AJAX son 'ajax_ar_add'. -->
+  <!-- AR (Analysis Request): handler SOLO para EDAD -->
 
   <!-- Alta de AR (vista 'ar_add') -->
   <adapter
       for="*
            senaite.patient.interfaces.ISenaitePatientLayer"
       name="ar_add"
-      factory=".form.AnalysisRequestEditForm" />
-
-  <!-- Alta de AR (AJAX 'ajax_ar_add' -> recalculate_records, get_service, etc.) -->
-  <adapter
-      for="*
-           senaite.patient.interfaces.ISenaitePatientLayer"
-      name="ajax_ar_add"
       factory=".form.AnalysisRequestEditForm" />
 
   <!-- Edición de AR -->
