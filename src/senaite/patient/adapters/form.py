@@ -266,110 +266,88 @@ class PatientEditForm(EditFormAdapterBase):
 # ==== AR: SOLO EDAD  =====
 # =========================
 
-from bika.lims import api as _bika_api
+from bika.lims import api
 
-# Nombres de campos en el add de AR (según widgets estándar)
-_AR_PATIENT_FIELD = "MedicalRecordNumber-0"   # selector de paciente (UID)
-# Posibles nombres del campo "Edad" en AR: dejamos varios por robustez
-_AR_AGE_FIELDS = (
-    "form.widgets.age-0",
-    "form.widgets.Age-0",
-    "form.widgets.patient_age-0",
-    "form.widgets.age",       # fallback
-)
-# Posibles campos de fecha de muestreo
-_AR_SAMPLING_FIELDS = (
-    "form.widgets.DateSampled-0",
-    "form.widgets.SamplingDate-0",
-    "form.widgets.SamplingDate",   # fallback
-)
-
-def _upper_ymd(s):
-    if not s:
-        return s
-    return (u"{}".format(s)).replace(u"y", u"Y").replace(u"m", u"M").replace(u"d", u"D")
-
-def _get_first_form_value(form, keys):
-    for k in keys:
-        v = form.get(k)
-        if v:
-            return v
-    return None
+# CAMPOS CORREGIDOS BASADOS EN EL LOG
+_AR_PATIENT_FIELD = "MedicalRecordNumber-0"  # Campo del paciente (MRN)
+_AR_AGE_FIELD = "Age-0"  # Campo de edad en el AR
+_AR_SAMPLING_DATE_FIELD = "DateSampled-0"  # Campo de fecha de muestreo
 
 class AnalysisRequestEditForm(EditFormAdapterBase):
-    """Adapter para AR (solo edad). No toca DOB porque AR ya lo carga nativamente."""
+    """Adapter para AR - Actualización automática de edad al seleccionar paciente"""
 
     def initialized(self, data):
-        # Si ya hay paciente preseleccionado al entrar, calcula edad
-        form = data.get("form") or {}
-        self._update_age_from_current_state(form)
+        """Al inicializar el formulario"""
+        form = data.get("form", {})
+        self._update_ar_age(form)
         return self.data
 
     def added(self, data):
-        # Recalcula si cambian otros widgets que disparan 'added'
-        form = data.get("form") or {}
-        self._update_age_from_current_state(form)
+        """Cuando se agregan elementos"""
+        form = data.get("form", {})
+        self._update_ar_age(form)
         return self.data
 
     def modified(self, data):
+        """Cuando se modifican campos"""
         name = data.get("name")
-        form = data.get("form") or {}
+        form = data.get("form", {})
 
-        # Cuando el usuario selecciona paciente
-        if name == _AR_PATIENT_FIELD:
-            self._update_age_from_current_state(form)
-            return self.data
-
-        # Cuando cambian la fecha de muestreo, actualiza edad a esa fecha
-        if name in _AR_SAMPLING_FIELDS or (name or "").startswith("form.widgets.SamplingDate-"):
-            self._update_age_from_current_state(form)
-            return self.data
-
+        # Si cambia el paciente O la fecha de muestreo, actualizar edad
+        if name in [_AR_PATIENT_FIELD, _AR_SAMPLING_DATE_FIELD]:
+            self._update_ar_age(form)
+            
         return self.data
 
-    # ----------------------
-    # Lógica central
-    # ----------------------
-    def _update_age_from_current_state(self, form):
-        """Lee paciente + fecha muestreo y escribe la EDAD en el/los campo(s) de AR."""
-        # 1) Resolver paciente desde el selector (UID)
-        patient_uid = form.get(_AR_PATIENT_FIELD)
-        patient = None
-        if patient_uid:
-            try:
-                patient = _bika_api.get_object_by_uid(patient_uid)
-            except Exception:
-                patient = None
-
-        # Sin paciente => no hacemos nada
-        if not patient:
-            return
-
-        # 2) Fecha de referencia para la edad: SamplingDate si existe, si no hoy
-        ref_date = _get_first_form_value(form, _AR_SAMPLING_FIELDS)
-        # Los widgets a veces pasan string; intentamos formatear a date/datetime
-        if ref_date:
-            try:
-                # dtime.to_DT es robusto con strings/fechas
-                ref_dt = dtime.to_DT(ref_date)
-            except Exception:
-                ref_dt = None
-        else:
-            ref_dt = dtime.to_DT(dtime.now())
-
-        # 3) Calcular edad con helper del Patient (ya la tienes en tu Patient)
+    def _update_ar_age(self, form):
+        """Actualiza el campo de edad en el AR basado en el paciente seleccionado"""
         try:
-            age_txt = patient.getAgeAt(ref_dt) if ref_dt else patient.getAge()
+            # Obtener paciente del formulario
+            patient_uid = form.get(_AR_PATIENT_FIELD)
+            if not patient_uid:
+                return
+                
+            patient = api.get_object_by_uid(patient_uid)
+            if not patient:
+                return
+                
+            # Obtener fecha de referencia (muestreo o actual)
+            sampling_date = form.get(_AR_SAMPLING_DATE_FIELD)
+            ref_date = dtime.to_DT(sampling_date) if sampling_date else dtime.to_DT(dtime.now())
+            
+            # Calcular edad
+            age_text = self._calculate_patient_age(patient, ref_date)
+            if age_text:
+                # Actualizar campo de edad en el formulario
+                self.add_update_field(_AR_AGE_FIELD, age_text)
+                
         except Exception:
-            # Fallback directo con dtime
-            try:
-                dob = patient.getBirthdate()
-                age_txt = dtime.get_ymd(dob, ref_date=ref_dt) if ref_dt else dtime.get_ymd(dob)
-            except Exception:
-                age_txt = u""
+            # Silenciar errores para no interrumpir el flujo
+            pass
 
-        age_txt = _upper_ymd(age_txt or u"")
-
-        # 4) Volcar la edad en los posibles campos del formulario
-        for age_field in _AR_AGE_FIELDS:
-            self.add_update_field(age_field, age_txt)
+    def _calculate_patient_age(self, patient, ref_date=None):
+        """Calcula la edad del paciente en formato estándar"""
+        try:
+            # Intentar usar el método del paciente primero
+            if hasattr(patient, 'getAgeAt') and ref_date:
+                age = patient.getAgeAt(ref_date)
+            elif hasattr(patient, 'getAge'):
+                age = patient.getAge()
+            else:
+                # Fallback: calcular desde fecha de nacimiento
+                birthdate = getattr(patient, 'getBirthdate', lambda: None)()
+                if birthdate and ref_date:
+                    age = dtime.get_ymd(birthdate, ref_date=ref_date)
+                else:
+                    age = ""
+            
+            # Asegurar formato consistente (años, meses, días)
+            if age:
+                age = _to_ascii_age(age)
+                # Convertir a mayúsculas para consistencia (12Y 3M 4D)
+                age = age.replace('y', 'Y').replace('m', 'M').replace('d', 'D')
+            
+            return age
+            
+        except Exception:
+            return ""
