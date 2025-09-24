@@ -21,6 +21,13 @@
 from senaite.core.api import dtime
 from senaite.core.browser.form.adapters import EditFormAdapterBase
 
+# --- Compatibilidad Py2/Py3 para 'unicode' ---
+try:
+    unicode  # Py2
+except NameError:  # Py3
+    unicode = str
+# ---------------------------------------------
+
 ESTIMATED_BIRTHDATE_FIELDS = (
     "form.widgets.estimated_birthdate",
     "form.widgets.estimated_birthdate:list"
@@ -262,163 +269,3 @@ class PatientEditForm(EditFormAdapterBase):
 
         self.add_show_field(BIRTHDATE_FIELDS[0])
 
-# ==== AR (Analysis Request) ====
-
-import logging
-from bika.lims import api
-from senaite.core.api import dtime
-from senaite.core.browser.form.adapters import EditFormAdapterBase
-from senaite.patient.api import get_patient_by_mrn
-
-logger = logging.getLogger(__name__)
-
-# Campos del formulario (acepta variantes con y sin sufijo "-0")
-_AR_PATIENT_FIELDS = ("MedicalRecordNumber-0", "MedicalRecordNumber")
-_AR_SAMPLING_DATE_FIELDS = ("DateSampled-0", "DateSampled")
-
-# Edad compuesta en AR
-_AR_AGE_Y = ("AgeYears-0", "AgeYears")
-_AR_AGE_M = ("AgeMonths-0", "AgeMonths")
-_AR_AGE_D = ("AgeDays-0", "AgeDays")
-
-# (Opcional) Fecha de nacimiento mostrada en el AR
-_AR_DOB = ("DateOfBirth-0", "DateOfBirth")
-
-
-def _get_first(form, keys):
-    """Devuelve el primer valor no vacío para cualquiera de las claves dadas."""
-    for k in keys:
-        v = form.get(k)
-        if v not in (None, ""):
-            return v
-    return None
-
-
-def _set_first(adapter, keys, value):
-    """Actualiza la primera clave disponible (con add_update_field) y sale."""
-    for k in keys:
-        adapter.add_update_field(k, value)
-        break
-
-
-def _to_ascii_age(age_text):
-    """Normaliza una edad localizada a un formato ASCII: '12y 3m 4d'."""
-    if age_text is None:
-        return u""
-    try:
-        txt = unicode(age_text)
-    except Exception:
-        txt = u"%s" % age_text
-    txt = txt.lower()
-
-    # español y variantes
-    txt = txt.replace(u"a\u00f1os", u"y").replace(u"años", u"y")
-    txt = txt.replace(u"meses", u"m").replace(u"mes", u"m")
-    txt = txt.replace(u"d\u00edas", u"d").replace(u"dias", u"d")
-
-    # inglés (por si el método devuelve localized en EN)
-    txt = (txt.replace("years", "y").replace("year", "y")
-               .replace("months", "m").replace("month", "m")
-               .replace("days", "d").replace("day", "d"))
-
-    # dejar solo dígitos, espacios y y/m/d
-    allowed = u"0123456789 ymd"
-    txt = u"".join(c for c in txt if c in allowed)
-    txt = u" ".join(txt.split())
-    return txt
-
-
-def _parse_age_to_ymd(age_text):
-    """'12y 3m 4d' -> (12, 3, 4). Acepta faltantes (ej. '7y' -> (7,0,0))."""
-    txt = _to_ascii_age(age_text)
-    y = m = d = 0
-    for part in txt.split():
-        if part.endswith("y"):
-            y = int(part[:-1] or 0)
-        elif part.endswith("m"):
-            m = int(part[:-1] or 0)
-        elif part.endswith("d"):
-            d = int(part[:-1] or 0)
-    return y, m, d
-
-
-class AnalysisRequestEditForm(EditFormAdapterBase):
-    """Adapter para AR: inyecta Edad (Y/M/D) al seleccionar el Paciente o cambiar la fecha de muestreo."""
-
-    def initialized(self, data):
-        form = data.get("form", {})
-        logger.info("🎯 AR.initialized keys=%s", list(form.keys()))
-        self._update_ar_age(form)
-        return self.data
-
-    def added(self, data):
-        form = data.get("form", {})
-        logger.info("🎯 AR.added keys=%s", list(form.keys()))
-        self._update_ar_age(form)
-        return self.data
-
-    def modified(self, data):
-        name = data.get("name")
-        form = data.get("form", {})
-        logger.info("🎯 AR.modified field=%s", name)
-        if name in _AR_PATIENT_FIELDS or name in _AR_SAMPLING_DATE_FIELDS:
-            self._update_ar_age(form)
-        return self.data
-
-    # ----------------------
-    # Núcleo: cálculo/volcado de edad
-    # ----------------------
-    def _update_ar_age(self, form):
-        try:
-            # 1) Obtener MRN (el ReferenceWidget de Paciente escribe MRN, no UID)
-            mrn = _get_first(form, _AR_PATIENT_FIELDS)
-            if not mrn:
-                logger.info("🎯 AR: no MRN in form; skipping")
-                return
-            mrn_str = (u"%s" % mrn).strip()
-
-            # 2) Resolver paciente por MRN (si parece UID, probamos UID y si falla MRN)
-            patient = None
-            looks_uid = (len(mrn_str) in (32, 36)) and all(c in "0123456789abcdef-" for c in mrn_str.lower())
-            if looks_uid:
-                patient = api.get_object_by_uid(mrn_str) or get_patient_by_mrn(mrn_str)
-            else:
-                patient = get_patient_by_mrn(mrn_str)
-
-            if not patient:
-                logger.info("🎯 AR: patient not found for %r", mrn_str)
-                return
-
-            # 3) Fecha de referencia: muestreo si viene, sino ahora
-            sampling_date = _get_first(form, _AR_SAMPLING_DATE_FIELDS)
-            ref_dt = dtime.to_DT(sampling_date) if sampling_date else dtime.to_DT(dtime.now())
-
-            # 4) Calcular edad (preferir getAgeAt)
-            age_text = u""
-            if hasattr(patient, "getAgeAt") and ref_dt:
-                age_text = patient.getAgeAt(ref_dt)
-            elif hasattr(patient, "getAge"):
-                age_text = patient.getAge()
-            else:
-                bd = getattr(patient, "getBirthdate", lambda: None)()
-                if bd:
-                    age_text = dtime.get_ymd(bd, ref_date=ref_dt)
-
-            if not age_text:
-                logger.info("🎯 AR: cannot compute age")
-                return
-
-            # 5) Normalizar y volcar Y/M/D
-            y, m, d = _parse_age_to_ymd(age_text)
-            _set_first(self, _AR_AGE_Y, str(y))
-            _set_first(self, _AR_AGE_M, str(m))
-            _set_first(self, _AR_AGE_D, str(d))
-            logger.info("🎯 AR Age set => Y:%s M:%s D:%s", y, m, d)
-
-            # 6) (Opcional) DOB en el AR si existe en el paciente
-            bd = getattr(patient, "getBirthdate", lambda: None)()
-            if bd:
-                _set_first(self, _AR_DOB, bd)
-
-        except Exception as e:
-            logger.error("🎯 AR: error updating age: %s", e)
