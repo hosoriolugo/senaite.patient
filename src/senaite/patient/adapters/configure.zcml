@@ -65,19 +65,4 @@
            senaite.patient.interfaces.ISenaitePatientLayer"
       factory=".form.PatientEditForm"/>
 
-  <!-- AR (Analysis Request): handler SOLO para EDAD -->
-
-  <!-- Alta de AR (vista 'ar_add') -->
-  <adapter
-      for="*
-           senaite.patient.interfaces.ISenaitePatientLayer"
-      name="ar_add"
-      factory=".form.AnalysisRequestEditForm" />
-
-  <!-- Edición de AR -->
-  <adapter
-      for="bika.lims.interfaces.IAnalysisRequest
-           senaite.patient.interfaces.ISenaitePatientLayer"
-      factory=".form.AnalysisRequestEditForm" />
-
 </configure>
