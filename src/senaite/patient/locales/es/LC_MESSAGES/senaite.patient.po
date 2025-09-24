@@ -984,3 +984,9 @@ msgstr "Edad"
 
 msgid "description_patient_age"
 msgstr "Edad en formato YMD (Años-Meses-Días). Ejemplos: '45y 3m 20d', '67y'. Se calcula automáticamente a partir de la fecha de nacimiento."
+
+msgid "Name"
+msgstr "Nombre"
+
+msgid "Retention Period"
+msgstr "Retention Period "
