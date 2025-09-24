@@ -68,13 +68,20 @@
       factory=".form.PatientEditForm"/>
 
   <!-- AR (Analysis Request): handler SOLO para EDAD.
-       Importante: la vista de alta real es 'ar_add' (según el log). -->
+       Importante: la vista de alta real es 'ar_add' y los endpoints AJAX son 'ajax_ar_add'. -->
 
   <!-- Alta de AR (vista 'ar_add') -->
   <adapter
       for="*
            senaite.patient.interfaces.ISenaitePatientLayer"
       name="ar_add"
+      factory=".form.AnalysisRequestEditForm" />
+
+  <!-- Alta de AR (AJAX 'ajax_ar_add' -> recalculate_records, get_service, etc.) -->
+  <adapter
+      for="*
+           senaite.patient.interfaces.ISenaitePatientLayer"
+      name="ajax_ar_add"
       factory=".form.AnalysisRequestEditForm" />
 
   <!-- Edición de AR -->
