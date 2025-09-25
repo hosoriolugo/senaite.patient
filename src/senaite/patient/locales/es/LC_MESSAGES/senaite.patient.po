@@ -877,7 +877,7 @@ msgstr "${fullname} <sup>&dagger;</sup>"
 
 #: senaite/patient/skins/templates/senaite_patient_widgets/fullnamewidget.pt:103
 msgid "placeholder"
-msgstr "placeholder"
+msgstr "marcador de posición"
 
 #. Default: "Asked but unknown"
 #: senaite/patient/config.py:80
@@ -989,4 +989,4 @@ msgid "Name"
 msgstr "Nombre"
 
 msgid "Retention Period"
-msgstr "Retention Period "
+msgstr "Periodo de retención "
