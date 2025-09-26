@@ -61,12 +61,13 @@
 
           <!-- Firstname + middlename + lastname + maternal_lastname input area -->
           <div class="input-group d-flex d-inline-flex w-auto" tal:condition="not:fullname_mode">
+
             <!-- Firstname -->
             <input type="text"
-                   title="Firstname"
-                   placeholder="Firstname"
+                   title="firstname"
+                   placeholder="firstname"
                    class="form-control form-control-sm mb-1"
-                   i18n:attributes="placeholder label_firstname"
+                   i18n:attributes="title; placeholder"
                    tal:attributes="id string:${subfield_firstname};
                                    name string:${subfield_firstname};
                                    value firstname;
@@ -74,11 +75,11 @@
 
             <!-- Middlename -->
             <input type="text"
-                   title="Middlename"
-                   placeholder="Middlename"
+                   title="middlename"
+                   placeholder="middlename"
                    class="form-control form-control-sm mb-1"
                    tal:condition="parts_mode"
-                   i18n:attributes="placeholder label_middlename"
+                   i18n:attributes="title; placeholder"
                    tal:attributes="id string:${subfield_middlename};
                                    name string:${subfield_middlename};
                                    value middlename;
@@ -91,10 +92,10 @@
 
             <!-- Lastname -->
             <input type="text"
-                   title="Lastname"
+                   title="lastname"
+                   placeholder="lastname"
                    class="form-control form-control-sm mb-1"
-                   placeholder="Lastname"
-                   i18n:attributes="placeholder label_lastname"
+                   i18n:attributes="title; placeholder"
                    tal:attributes="id string:${subfield_lastname};
                                    name string:${subfield_lastname};
                                    value lastname;
@@ -102,10 +103,10 @@
 
             <!-- Maternal Lastname -->
             <input type="text"
-                   title="Maternal Lastname"
+                   title="maternal_lastname"
+                   placeholder="maternal_lastname"
                    class="form-control form-control-sm mb-1"
-                   placeholder="Maternal Lastname"
-                   i18n:attributes="placeholder label_maternal_lastname"
+                   i18n:attributes="title; placeholder"
                    tal:attributes="id string:${subfield_maternal_lastname};
                                    name string:${subfield_maternal_lastname};
                                    value maternal_lastname;
@@ -115,8 +116,9 @@
           <!-- Fullname input area -->
           <div class="form-group" tal:condition="fullname_mode">
             <input type="text"
+                   title="Fullname"
                    placeholder="Fullname"
-                   i18n:attributes="title placeholder"
+                   i18n:attributes="title; placeholder"
                    tal:attributes="id string:${subfield_firstname};
                                    name string:${subfield_firstname};
                                    value fullname;
@@ -133,4 +135,3 @@
 
   </body>
 </html>
-
