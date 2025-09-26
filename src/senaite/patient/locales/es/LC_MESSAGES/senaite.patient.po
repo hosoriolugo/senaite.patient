@@ -631,7 +631,7 @@ msgstr "Primer nombre"
 #. Default: "Lastname"
 #: senaite/patient/skins/templates/senaite_patient_widgets/fullnamewidget.pt:90
 msgid "label_lastname"
-msgstr "Apellido Paterno"
+msgstr "Apellido paterno"
 
 #. Default: "Middlename"
 #: senaite/patient/skins/templates/senaite_patient_widgets/fullnamewidget.pt:73
