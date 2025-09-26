@@ -163,6 +163,26 @@ WORKFLOW_TO_UPDATE = {
     }
 }
 
+# --- i18n helper (perezoso) para traducir el título de la carpeta 'patients'
+def _tx(portal, msgid):
+    """Traduce msgid con dominio 'senaite.patient' forzando idioma del sitio."""
+    try:
+        from zope.i18n import translate
+        from senaite.patient import messageFactory as _
+    except Exception:
+        return msgid
+    try:
+        langtool = getattr(portal, 'portal_languages', None)
+        lang = langtool.getDefaultLanguage() if langtool else 'es'
+        if not lang:
+            lang = 'es'
+    except Exception:
+        lang = 'es'
+    try:
+        return translate(_(msgid), domain='senaite.patient', target_language=lang)
+    except Exception:
+        return msgid
+
 
 def setup_handler(context):
     """Generic setup handler
@@ -179,7 +199,7 @@ def setup_handler(context):
     # Setup catalog mappings
     setup_catalog_mappings(portal)
 
-    # Setup patients root folder
+    # Setup patients root folder (crea/normaliza con título traducido)
     add_patient_folder(portal)
 
     # Configure visible navigation items
@@ -241,11 +261,38 @@ def setup_catalogs(portal):
 
 
 def add_patient_folder(portal):
-    """Adds the initial Patient folder
+    """Adds/normalizes the initial Patient folder title using i18n
     """
-    if portal.get("patients") is None:
+    folder_id = "patients"
+    msgid = u"Patients"
+    title_tx = _tx(portal, msgid)
+
+    obj = portal.get(folder_id)
+    if obj is None:
         logger.info("Adding Patient Folder")
-        portal.invokeFactory("PatientFolder", "patients", title="Patients")
+        portal.invokeFactory("PatientFolder", folder_id, title=title_tx)
+        try:
+            portal[folder_id].reindexObject()
+        except Exception:
+            pass
+        return
+
+    # Si existe, normaliza si está vacío o sigue siendo 'Patients'
+    try:
+        current_title = obj.Title()
+    except Exception:
+        current_title = getattr(obj, 'title', u'') or u''
+
+    if (not current_title) or current_title.strip().lower() == msgid.lower():
+        if current_title != title_tx:
+            try:
+                obj.setTitle(title_tx)
+            except Exception:
+                setattr(obj, 'title', title_tx)
+            try:
+                obj.reindexObject()
+            except Exception:
+                pass
 
 
 def setup_navigation_types(portal):
