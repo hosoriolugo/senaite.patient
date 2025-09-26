@@ -721,7 +721,7 @@ msgstr "ID"
 #. Default: "Lastname"
 #: senaite/patient/content/patient.py:163
 msgid "label_patient_lastname"
-msgstr "Apellido Paterno"
+msgstr "Apellido paterno"
 
 #. Default: "Marital Status"
 #: senaite/patient/content/patient.py:185
