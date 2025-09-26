@@ -64,10 +64,11 @@
 
             <!-- Firstname -->
             <input type="text"
-                   title="firstname"
-                   placeholder="firstname"
+                   title="Firstname"
+                   placeholder="Firstname"
                    class="form-control form-control-sm mb-1"
-                   i18n:attributes="title; placeholder"
+                   i18n:domain="senaite.patient"
+                   i18n:attributes="title label_firstname; placeholder label_firstname"
                    tal:attributes="id string:${subfield_firstname};
                                    name string:${subfield_firstname};
                                    value firstname;
@@ -75,11 +76,12 @@
 
             <!-- Middlename -->
             <input type="text"
-                   title="middlename"
-                   placeholder="middlename"
+                   title="Middlename"
+                   placeholder="Middlename"
                    class="form-control form-control-sm mb-1"
                    tal:condition="parts_mode"
-                   i18n:attributes="title; placeholder"
+                   i18n:domain="senaite.patient"
+                   i18n:attributes="title label_middlename; placeholder label_middlename"
                    tal:attributes="id string:${subfield_middlename};
                                    name string:${subfield_middlename};
                                    value middlename;
@@ -92,10 +94,11 @@
 
             <!-- Lastname -->
             <input type="text"
-                   title="lastname"
-                   placeholder="lastname"
+                   title="Lastname"
+                   placeholder="Lastname"
                    class="form-control form-control-sm mb-1"
-                   i18n:attributes="title; placeholder"
+                   i18n:domain="senaite.patient"
+                   i18n:attributes="title label_lastname; placeholder label_lastname"
                    tal:attributes="id string:${subfield_lastname};
                                    name string:${subfield_lastname};
                                    value lastname;
@@ -103,10 +106,11 @@
 
             <!-- Maternal Lastname -->
             <input type="text"
-                   title="maternal_lastname"
-                   placeholder="maternal_lastname"
+                   title="Maternal Lastname"
+                   placeholder="Maternal Lastname"
                    class="form-control form-control-sm mb-1"
-                   i18n:attributes="title; placeholder"
+                   i18n:domain="senaite.patient"
+                   i18n:attributes="title label_maternal_lastname; placeholder label_maternal_lastname"
                    tal:attributes="id string:${subfield_maternal_lastname};
                                    name string:${subfield_maternal_lastname};
                                    value maternal_lastname;
@@ -118,7 +122,8 @@
             <input type="text"
                    title="Fullname"
                    placeholder="Fullname"
-                   i18n:attributes="title; placeholder"
+                   i18n:domain="senaite.patient"
+                   i18n:attributes="title Fullname; placeholder Fullname"
                    tal:attributes="id string:${subfield_firstname};
                                    name string:${subfield_firstname};
                                    value fullname;
