@@ -50,7 +50,7 @@ msgid "Age"
 msgstr "Edad"
 
 #: senaite/patient/content/analysisrequest.py:245
-msgid "Age / Date of birth"
+msgid "Age / Date of Birth"
 msgstr "Edad / Fecha de nacimiento"
 
 #: senaite/patient/browser/controlpanel.py:270
