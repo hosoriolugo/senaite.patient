@@ -990,3 +990,17 @@ msgstr "Nombre"
 
 msgid "Retention Period"
 msgstr "Periodo de retención "
+
+# Placeholders en minúscula
+msgid "firstname"
+msgstr "Nombre"
+
+msgid "middlename"
+msgstr "Segundo nombre"
+
+msgid "lastname"
+msgstr "Apellido"
+
+msgid "maternal_lastname"
+msgstr "Apellido materno"
+
