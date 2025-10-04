@@ -1002,3 +1002,11 @@ msgstr "Apellido materno"
 
 msgid "Fullname"
 msgstr "Nombre completo"
+
+# Título del add-on
+msgid "SENAITE PATIENT"
+msgstr "INFOLABSA PATIENT"
+
+# Descripción del add-on (la UI añade la versión al final)
+msgid "Installs SENAITE PATIENT"
+msgstr "Instala INFOLABSA PATIENT"
