@@ -118,14 +118,47 @@ def _iter_specs_by_traversal(portal):
 # -------------------------------------------------------------------
 
 def _get_analysis_spec(analysis):
-    """Devuelve el AnalysisSpec del análisis si existe/crea."""
+    """Devuelve/crea el AnalysisSpec del análisis probando múltiples firmas."""
     get_aspec = getattr(analysis, 'getAnalysisSpec', None)
-    if not callable(get_aspec):
-        return None
+    if callable(get_aspec):
+        # Variantes vistas en distintos builds
+        for args, kwargs in (
+            ((), {'create': True}),
+            ((True,), {}),
+            ((), {}),
+        ):
+            try:
+                aspec = get_aspec(*args, **kwargs)
+                if aspec:
+                    return aspec
+            except TypeError:
+                # firma no soportada
+                pass
+            except Exception:
+                pass
+
+    # Alternativas comunes
+    for alt in ('getOrCreateAnalysisSpec', 'ensureAnalysisSpec', '_get_or_create_analysis_spec'):
+        try:
+            fn = getattr(analysis, alt, None)
+            if callable(fn):
+                aspec = fn()
+                if aspec:
+                    return aspec
+        except Exception:
+            pass
+
+    # AT clásico vía Schema (algunos builds)
     try:
-        return get_aspec()
+        schema = getattr(analysis, 'Schema', lambda: None)()
+        if schema and 'AnalysisSpec' in schema:
+            aspec = schema['AnalysisSpec'].get(analysis)
+            if aspec:
+                return aspec
     except Exception:
-        return None
+        pass
+
+    return None
 
 def _current_spec_state(analysis):
     """Informa qué hay enlazado actualmente en el Analysis:
@@ -170,44 +203,114 @@ def _user_already_selected(analysis):
     kind, obj = _current_spec_state(analysis)
     return bool(obj)
 
-# -------------------- NUEVO: asegurar AnalysisSpec interno --------------------
+# -------------------- NUEVOS AJUSTES PARA INICIALIZACIÓN --------------------
+
+def _force_create_analysis_spec_legacy(analysis):
+    """Último recurso para AT antiguos: intenta crear un AnalysisSpec embebido.
+    Solo se ejecuta si _get_analysis_spec aún no devuelve nada.
+    """
+    try:
+        if _get_analysis_spec(analysis):
+            return True
+
+        # Intento 1: API de bika/senaite (si existe)
+        try:
+            from bika.lims import api as bika_api
+            aspec = bika_api.create(
+                container=analysis,
+                type_name="AnalysisSpec",
+                id="analysisspec"
+            )
+            if aspec:
+                try:
+                    analysis.reindexObject()
+                except Exception:
+                    pass
+                return _get_analysis_spec(analysis) is not None
+        except Exception:
+            pass
+
+        # Intento 2: Archetypes clásico
+        try:
+            if hasattr(analysis, "invokeFactory"):
+                new_id = None
+                try:
+                    new_id = analysis.invokeFactory("AnalysisSpec", id="analysisspec")
+                except Exception:
+                    new_id = analysis.invokeFactory("AnalysisSpec")
+                if new_id or True:
+                    try:
+                        analysis.reindexObject()
+                    except Exception:
+                        pass
+                    return _get_analysis_spec(analysis) is not None
+        except Exception:
+            pass
+
+    except Exception:
+        pass
+    return False
 
 def _ensure_analysis_spec_initialized(analysis):
     """Garantiza que el AnalysisSpec interno exista antes de aplicar la Spec.
-    Estrategia:
-      1) Si getAnalysisSpec ya devuelve algo, listo.
-      2) Si no, intentar 'despertar' la estructura llamando setResultsRange({}).
-      3) Re-chequear y devolver True/False.
+    Intenta múltiples firmas, 'wakeups' y, como último recurso, creación explícita (AT legacy).
     """
-    # 1) ¿ya existe?
+    # ¿ya existe?
+    if _get_analysis_spec(analysis):
+        return True
+
+    # Reintentos con creación explícita por firma
     try:
-        aspec = getattr(analysis, "getAnalysisSpec", lambda: None)()
-        if aspec:
-            return True
+        get_aspec = getattr(analysis, 'getAnalysisSpec', None)
+        if callable(get_aspec):
+            for args, kwargs in (
+                ((), {'create': True}),
+                ((True,), {}),
+            ):
+                try:
+                    aspec = get_aspec(*args, **kwargs)
+                    if aspec:
+                        return True
+                except TypeError:
+                    pass
+                except Exception:
+                    pass
     except Exception:
         pass
 
-    # 2) Forzar inicialización suave
+    for alt in ('getOrCreateAnalysisSpec', 'ensureAnalysisSpec', '_get_or_create_analysis_spec'):
+        try:
+            fn = getattr(analysis, alt, None)
+            if callable(fn) and fn():
+                return True
+        except Exception:
+            pass
+
+    # “Wake-up” clásico
     try:
         set_rr = getattr(analysis, "setResultsRange", None)
         if callable(set_rr):
-            # No ponemos datos aún; solo creamos el contenedor
             set_rr({})
-            # Algunos builds requieren reindex para materializar metadatos
-            try:
-                analysis.reindexObject()
-            except Exception:
-                pass
     except Exception as e:
         logger.warn("[AutoSpec] No se pudo inicializar AnalysisSpec para %s: %r",
                     getattr(analysis, 'getId', lambda: 'analysis')(), e)
 
-    # 3) Re-chequeo
     try:
-        aspec = getattr(analysis, "getAnalysisSpec", lambda: None)()
-        return bool(aspec)
+        analysis.reindexObject()
     except Exception:
-        return False
+        pass
+
+    if _get_analysis_spec(analysis):
+        return True
+
+    # 🔴 Último recurso: creación explícita para builds AT antiguos
+    try:
+        if _force_create_analysis_spec_legacy(analysis):
+            return True
+    except Exception:
+        pass
+
+    return False
 
 # -------------------------------------------------------------------
 # SELECTOR DE SPEC (prioriza DX)
@@ -342,20 +445,32 @@ def _apply_spec(analysis, spec):
 
             # Idempotencia DX
             get_dx = getattr(aspec, "getDynamicAnalysisSpec", None)
-            if callable(get_dx):
-                try:
-                    curr = get_dx()
-                    if curr and _uid(curr) == spec_uid:
-                        logger.info("[AutoSpec] %s: DX ya enlazada (%s); no-op",
-                                    analysis.Title(), getattr(spec, 'Title', lambda: spec)())
-                        return True
-                except Exception:
-                    pass
+            try:
+                curr = get_dx() if callable(get_dx) else None
+                if curr and _uid(curr) == spec_uid:
+                    logger.info("[AutoSpec] %s: DX ya enlazada (%s); no-op",
+                                analysis.Title(), getattr(spec, 'Title', lambda: spec)())
+                    return True
+            except Exception:
+                pass
 
-            setter = getattr(aspec, "setDynamicAnalysisSpec", None)
-            if not callable(setter):
-                raise AttributeError("AnalysisSpec lacks setDynamicAnalysisSpec()")
-            setter(spec)
+            # Soportar setters que esperan objeto o UID
+            tried = False
+            for setter_name, value in (
+                ("setDynamicAnalysisSpec", spec),           # objeto
+                ("setDynamicAnalysisSpec", spec_uid),       # UID (algunos builds lo aceptan)
+                ("setDynamicAnalysisSpecUID", spec_uid),    # UID explícito
+            ):
+                setter = getattr(aspec, setter_name, None)
+                if callable(setter):
+                    try:
+                        setter(value)
+                        tried = True
+                        break
+                    except Exception:
+                        pass
+            if not tried:
+                raise AttributeError("AnalysisSpec no expone setter DX compatible")
 
             # Limpia ResultsRange para forzar recálculo dinámico
             try:
@@ -374,26 +489,42 @@ def _apply_spec(analysis, spec):
             return True
 
         # --- AT clásico ---
-        # Idempotencia AT: si soporta getSpecification
         aspec = _get_analysis_spec(analysis)
         if aspec:
+            # Idempotencia AT
             get_at = getattr(aspec, "getSpecification", None)
-            if callable(get_at):
-                try:
-                    curr = get_at()
-                    if curr and _uid(curr) == spec_uid:
-                        logger.info("[AutoSpec] %s: AT ya enlazada (%s); no-op",
-                                    analysis.Title(), getattr(spec, 'Title', lambda: spec)())
-                        return True
-                except Exception:
-                    pass
+            try:
+                curr = get_at() if callable(get_at) else None
+                if curr and _uid(curr) == spec_uid:
+                    logger.info("[AutoSpec] %s: AT ya enlazada (%s); no-op",
+                                analysis.Title(), getattr(spec, 'Title', lambda: spec)())
+                    return True
+            except Exception:
+                pass
 
-        if hasattr(analysis, 'setSpecification'):
-            analysis.setSpecification(spec)
-        elif aspec and hasattr(aspec, 'setSpecification'):
-            aspec.setSpecification(spec)
-        else:
-            raise AttributeError("Neither analysis.setSpecification nor aspec.setSpecification available")
+        # Soportar setters en Analysis o en AnalysisSpec y en sus variantes por UID
+        set_ok = False
+        for owner in (analysis, aspec):
+            if not owner:
+                continue
+            for setter_name, value in (
+                ("setSpecification", spec),           # objeto
+                ("setSpecification", spec_uid),       # UID
+                ("setSpecificationUID", spec_uid),    # UID explícito
+            ):
+                setter = getattr(owner, setter_name, None)
+                if callable(setter):
+                    try:
+                        setter(value)
+                        set_ok = True
+                        break
+                    except Exception:
+                        pass
+            if set_ok:
+                break
+
+        if not set_ok:
+            raise AttributeError("Ni analysis/aspec exponen setter AT compatible")
 
         try:
             analysis.reindexObject()
