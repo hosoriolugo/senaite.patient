@@ -154,7 +154,8 @@ def _log_capabilities(analysis, aspec):
                 "exists": bool(aspec),
                 "setSpecification": bool(aspec and callable(getattr(aspec, "setSpecification", None))),
                 "setSpecificationUID": bool(aspec and callable(getattr(aspec, "setSpecificationUID", None))),
-                "setDynamicAnalysisSpec": bool(aspec and callable(getattr(aspec, "setDynamicAnalysisSpec", None))()),
+                # ❗ corregido: no invocar el callable aquí
+                "setDynamicAnalysisSpec": bool(aspec and callable(getattr(aspec, "setDynamicAnalysisSpec", None))),
                 "setDynamicAnalysisSpecUID": bool(aspec and callable(getattr(aspec, "setDynamicAnalysisSpecUID", None))),
                 "getSpecification": bool(aspec and callable(getattr(aspec, "getSpecification", None))),
                 "getDynamicAnalysisSpec": bool(aspec and callable(getattr(aspec, "getDynamicAnalysisSpec", None))),
@@ -471,9 +472,8 @@ def _apply_spec(analysis, spec):
     """Asigna Specification respetando SENAITE 2.6 (AT/DX) sin pisar selección manual.
        Estrategia:
        1) Probar setters directos por UID/objeto en Analysis (DX/AT).
-          Para DX, si faltan setters DX, usar puente genérico setSpecification*(DX).
-       2) Asegurar/crear AnalysisSpec embebido y setear en él.
-       3) Reindex y limpiar ResultsRange si corresponde.
+       2) Asegurar/crear AnalysisSpec embebido y setear en él (especialmente DX).
+       3) Reindex y, SOLO si hay AnalysisSpec listo/enlazado, limpiar ResultsRange.
     """
     try:
         # 0) Si ya hay algo, no tocar (respeta selección manual / previa)
@@ -491,171 +491,155 @@ def _apply_spec(analysis, spec):
         # Log de capacidades antes de tocar nada
         _log_capabilities(analysis, _get_analysis_spec(analysis))
 
-        # --- 1) Intento preferente: setters directos en Analysis ---
+        # --- DX ---
         if pt in ("DynamicAnalysisSpec", "dynamic_analysisspec"):
-            # 1a) Setters DX nativos (si existen)
+            bridge_ok = False
+
+            # 1) Intento preferente: setters DX nativos en Analysis
             for setter_name, value in (
-                ("setDynamicAnalysisSpecUID", spec_uid),    # UID explícito
-                ("setDynamicAnalysisSpec", spec),           # objeto
-                ("setDynamicAnalysisSpec", spec_uid),       # algunos builds aceptan UID aquí
+                ("setDynamicAnalysisSpecUID", spec_uid),
+                ("setDynamicAnalysisSpec", spec),
+                ("setDynamicAnalysisSpec", spec_uid),
             ):
                 setter = getattr(analysis, setter_name, None)
                 if callable(setter):
                     try:
                         setter(value)
+                        bridge_ok = True
                         logger.info("[AutoSpec] %s: DX asignada en Analysis vía %s",
                                     analysis.Title(), setter_name)
-                        try:
-                            if hasattr(analysis, "setResultsRange"):
-                                analysis.setResultsRange(None)
-                        except Exception:
-                            pass
-                        try:
-                            analysis.reindexObject()
-                        except Exception:
-                            pass
-                        return True
+                        break
                     except Exception:
                         pass
 
-            # 1b) 🔁 Puente genérico para DX: usar setSpecification*(DX)
-            for setter_name, value in (
-                ("setSpecificationUID", spec_uid),    # UID explícito
-                ("setSpecification", spec_uid),       # UID tolerado
-                ("setSpecification", spec),           # objeto
-            ):
-                setter = getattr(analysis, setter_name, None)
-                if callable(setter):
+            # 2) Puente genérico (DX usando setSpecification* en Analysis)
+            if not bridge_ok:
+                for setter_name, value in (
+                    ("setSpecificationUID", spec_uid),
+                    ("setSpecification", spec_uid),
+                    ("setSpecification", spec),
+                ):
+                    setter = getattr(analysis, setter_name, None)
+                    if callable(setter):
+                        try:
+                            setter(value)
+                            bridge_ok = True
+                            logger.info("[AutoSpec] %s: DX aplicada en Analysis vía puente %s",
+                                        analysis.Title(), setter_name)
+                            break
+                        except Exception:
+                            pass
+
+            # 3) Asegurar SIEMPRE AnalysisSpec antes de tocar ResultsRange
+            aspec_ok = _ensure_analysis_spec_initialized(analysis)
+            aspec = _get_analysis_spec(analysis) if aspec_ok else None
+            _log_capabilities(analysis, aspec)
+
+            # 3a) Si hay AnalysisSpec y expone setters DX, enlazar también ahí
+            if aspec:
+                linked = False
+                try:
+                    get_dx = getattr(aspec, "getDynamicAnalysisSpec", None)
+                    curr = get_dx() if callable(get_dx) else None
+                    if curr and _uid(curr) == spec_uid:
+                        linked = True
+                        logger.info("[AutoSpec] %s: DX ya enlazada en AnalysisSpec; no-op",
+                                    analysis.Title())
+                except Exception:
+                    pass
+
+                if not linked:
+                    for setter_name, value in (
+                        ("setDynamicAnalysisSpecUID", spec_uid),
+                        ("setDynamicAnalysisSpec", spec),
+                        ("setDynamicAnalysisSpec", spec_uid),
+                    ):
+                        setter = getattr(aspec, setter_name, None)
+                        if callable(setter):
+                            try:
+                                setter(value)
+                                linked = True
+                                logger.info("[AutoSpec] %s: DX enlazada en AnalysisSpec vía %s",
+                                            analysis.Title(), setter_name)
+                                break
+                            except Exception:
+                                pass
+
+                # Si quedó enlazada (o ya lo estaba), ahora sí limpiar RR y reindexar
+                if linked:
                     try:
-                        setter(value)
-                        logger.info("[AutoSpec] %s: DX aplicada en Analysis vía puente %s",
-                                    analysis.Title(), setter_name)
-                        try:
-                            if hasattr(analysis, "setResultsRange"):
-                                analysis.setResultsRange(None)
-                        except Exception:
-                            pass
-                        try:
-                            analysis.reindexObject()
-                        except Exception:
-                            pass
-                        return True
+                        if hasattr(analysis, "setResultsRange"):
+                            analysis.setResultsRange(None)
                     except Exception:
                         pass
-
-        else:  # AT
-            for setter_name, value in (
-                ("setSpecificationUID", spec_uid),    # UID explícito
-                ("setSpecification", spec_uid),       # algunos builds aceptan UID
-                ("setSpecification", spec),           # objeto
-            ):
-                setter = getattr(analysis, setter_name, None)
-                if callable(setter):
                     try:
-                        setter(value)
-                        logger.info("[AutoSpec] %s: AT asignada en Analysis vía %s",
-                                    analysis.Title(), setter_name)
-                        try:
-                            analysis.reindexObject()
-                        except Exception:
-                            pass
-                        return True
+                        analysis.reindexObject()
                     except Exception:
                         pass
-
-        # --- 2) Asegurar AnalysisSpec y setear en él ---
-        if not _ensure_analysis_spec_initialized(analysis):
-            # Si llegamos aquí y no pudimos inicializar, ya probamos el puente para DX.
-            raise AttributeError("No AnalysisSpec found/created for analysis '{}'".format(
-                getattr(analysis, 'getKeyword', lambda: analysis)()
-            ))
-
-        aspec = _get_analysis_spec(analysis)
-        _log_capabilities(analysis, aspec)
-
-        if pt in ("DynamicAnalysisSpec", "dynamic_analysisspec"):
-            # Idempotencia DX
-            try:
-                get_dx = getattr(aspec, "getDynamicAnalysisSpec", None)
-                curr = get_dx() if callable(get_dx) else None
-                if curr and _uid(curr) == spec_uid:
-                    logger.info("[AutoSpec] %s: DX ya enlazada (%s); no-op",
-                                analysis.Title(), getattr(spec, 'Title', lambda: spec)())
                     return True
-            except Exception:
-                pass
 
+            # 3b) Si no hubo AnalysisSpec usable, evitar disparar el adaptador RR
+            if bridge_ok and not aspec_ok:
+                logger.warn("[AutoSpec] %s: DX aplicada en Analysis, pero no se pudo "
+                            "crear/enlazar AnalysisSpec; se omite limpiar ResultsRange "
+                            "para evitar fallo del adaptador.", analysis.Title())
+                try:
+                    analysis.reindexObject()
+                except Exception:
+                    pass
+                return True
+
+            # Si ni bridge ni aspec funcionaron
+            raise AttributeError("No fue posible aplicar DX (sin setters ni AnalysisSpec utilizable)")
+
+        # --- AT clásica ---
+        set_ok = False
+        # 1) Intento directo en Analysis
+        for setter_name, value in (
+            ("setSpecificationUID", spec_uid),
+            ("setSpecification", spec_uid),
+            ("setSpecification", spec),
+        ):
+            setter = getattr(analysis, setter_name, None)
+            if callable(setter):
+                try:
+                    setter(value)
+                    set_ok = True
+                    logger.info("[AutoSpec] %s: AT asignada en Analysis vía %s",
+                                analysis.Title(), setter_name)
+                    break
+                except Exception:
+                    pass
+
+        # 2) Si falla, intentamos en AnalysisSpec
+        if not set_ok:
+            if not _ensure_analysis_spec_initialized(analysis):
+                raise AttributeError("No AnalysisSpec disponible para AT")
+            aspec = _get_analysis_spec(analysis)
+            _log_capabilities(analysis, aspec)
+            done = False
             for setter_name, value in (
-                ("setDynamicAnalysisSpecUID", spec_uid),    # UID explícito preferido
-                ("setDynamicAnalysisSpec", spec),           # objeto
-                ("setDynamicAnalysisSpec", spec_uid),       # UID tolerado
+                ("setSpecificationUID", spec_uid),
+                ("setSpecification", spec_uid),
+                ("setSpecification", spec),
             ):
                 setter = getattr(aspec, setter_name, None)
                 if callable(setter):
                     try:
                         setter(value)
-                        try:
-                            if hasattr(analysis, "setResultsRange"):
-                                analysis.setResultsRange(None)
-                        except Exception:
-                            pass
-                        try:
-                            analysis.reindexObject()
-                        except Exception:
-                            pass
-                        logger.info("[AutoSpec] %s: DX aplicada en AnalysisSpec vía %s → %s",
-                                    analysis.Title(), setter_name,
-                                    getattr(spec, 'Title', lambda: spec)())
-                        return True
-                    except Exception:
-                        pass
-
-            raise AttributeError("AnalysisSpec no expone setter DX compatible")
-
-        # --- AT clásico ---
-        if aspec:
-            # Idempotencia AT
-            try:
-                get_at = getattr(aspec, "getSpecification", None)
-                curr = get_at() if callable(get_at) else None
-                if curr and _uid(curr) == spec_uid:
-                    logger.info("[AutoSpec] %s: AT ya enlazada (%s); no-op",
-                                analysis.Title(), getattr(spec, 'Title', lambda: spec)())
-                    return True
-            except Exception:
-                pass
-
-        set_ok = False
-        for owner_name, owner in (("AnalysisSpec", aspec), ("Analysis", analysis)):
-            if not owner:
-                continue
-            for setter_name, value in (
-                ("setSpecificationUID", spec_uid),    # UID explícito preferido
-                ("setSpecification", spec_uid),       # UID tolerado
-                ("setSpecification", spec),           # objeto
-            ):
-                setter = getattr(owner, setter_name, None)
-                if callable(setter):
-                    try:
-                        setter(value)
-                        set_ok = True
-                        logger.info("[AutoSpec] %s: AT aplicada en %s vía %s → %s",
-                                    analysis.Title(), owner_name, setter_name,
-                                    getattr(spec, 'Title', lambda: spec)())
+                        done = True
+                        logger.info("[AutoSpec] %s: AT aplicada en AnalysisSpec vía %s",
+                                    analysis.Title(), setter_name)
                         break
                     except Exception:
                         pass
-            if set_ok:
-                break
-
-        if not set_ok:
-            raise AttributeError("Ni analysis/aspec exponen setter AT compatible")
+            if not done:
+                raise AttributeError("Ni analysis/aspec exponen setter AT compatible")
 
         try:
             analysis.reindexObject()
         except Exception:
             pass
-
         return True
 
     except Exception as e:
