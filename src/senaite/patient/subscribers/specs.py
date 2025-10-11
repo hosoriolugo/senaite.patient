@@ -7,16 +7,12 @@ from bika.lims import api, logger
 # SOPORTE A AT y DX
 # -------------------------------------------------------------------
 
-# Tipos de Spec que soportamos:
 PORTAL_TYPES_SPECS = (
-    # AT clásico
-    'Specification',
-    # DX moderno (varía por build; incluimos alias comunes)
-    'DynamicAnalysisSpec',
-    'dynamic_analysisspec',
+    'Specification',             # AT
+    'DynamicAnalysisSpec',       # DX
+    'dynamic_analysisspec',      # DX alias
 )
 
-# Carpetas candidatas donde pueden vivir las Specs:
 SPEC_FOLDERS_CANDIDATES = (
     # AT:
     ('bika_setup', 'specifications'),
@@ -27,34 +23,21 @@ SPEC_FOLDERS_CANDIDATES = (
     ('setup', 'dynamic_analysisspecs'),
 )
 
-
 # -------------------------------------------------------------------
-# UTILIDADES ROBUSTAS (no rompen si algo falta)
+# UTILIDADES
 # -------------------------------------------------------------------
 
-def _get_portal_catalog(portal):
-    """Devuelve portal_catalog si existe (o None)."""
+def _uid(obj):
+    """UID segura para comparar objetos; vuelve a un id predecible si no hay UID()."""
     try:
-        return getToolByName(portal, 'portal_catalog', None)
+        if hasattr(obj, "UID"):
+            return obj.UID()
     except Exception:
-        return None
-
-
-def _search(cat, query):
-    """Intenta cat(**q) o searchResults(**q) y nunca rompe."""
-    if not cat:
-        return []
+        pass
     try:
-        res = cat(**query) or []
-    except TypeError:
-        try:
-            res = cat.searchResults(**query) or []
-        except Exception:
-            res = []
+        return getattr(obj, "getId", lambda: None)() or getattr(obj, "id", None) or repr(obj)
     except Exception:
-        res = []
-    return res
-
+        return repr(obj)
 
 def _obj_uid(obj, attr_name, default=None):
     """UID por getXxxUID() o getXxx().UID() o campo llano *_uid (DX)."""
@@ -86,41 +69,32 @@ def _obj_uid(obj, attr_name, default=None):
         pass
     return default
 
-
 def _spec_matches(spec_obj, service_uid, client_uid, sampletype_uid, method_uid):
-    """Filtra en Python; soporta AT/DX con getters o campos llanos.
-    OJO: en DX la elección real de fila se hace por Keyword/edad/sexo
-    dentro del adaptador dinámico; aquí solo evitamos Specs obvias que no aplican.
-    """
+    """Filtro suave para AT/DX; el detalle por edad/sexo lo resuelve el adaptador."""
     try:
         s_uid = (_obj_uid(spec_obj, "getServiceUID")
                  or _obj_uid(spec_obj, "getService")
                  or getattr(spec_obj, "service_uid", None))
         if s_uid and service_uid and s_uid != service_uid:
             return False
-
         c_uid = (_obj_uid(spec_obj, "getClientUID")
                  or getattr(spec_obj, "client_uid", None))
         if c_uid and client_uid and c_uid != client_uid:
             return False
-
         st_uid = (_obj_uid(spec_obj, "getSampleTypeUID")
                   or getattr(spec_obj, "sampletype_uid", None))
         if st_uid and sampletype_uid and st_uid != sampletype_uid:
             return False
-
         m_uid = (_obj_uid(spec_obj, "getMethodUID")
                  or getattr(spec_obj, "method_uid", None))
         if m_uid and method_uid and m_uid != method_uid:
             return False
-
         return True
     except Exception:
         return False
 
-
 def _iter_specs_by_traversal(portal):
-    """Recorre AT y DX: bika_setup/specifications y setup/dynamicanalysisspecs."""
+    """Recorre AT y DX en carpetas conocidas."""
     try:
         for root_name, folder_name in SPEC_FOLDERS_CANDIDATES:
             root = getattr(portal, root_name, None)
@@ -139,14 +113,61 @@ def _iter_specs_by_traversal(portal):
     except Exception:
         return
 
+# -------------------------------------------------------------------
+# ESTADO ACTUAL DEL ANALYSIS: ¿ya hay algo elegido por el usuario?
+# -------------------------------------------------------------------
+
+def _get_analysis_spec(analysis):
+    """Devuelve el AnalysisSpec del análisis si existe/crea."""
+    get_aspec = getattr(analysis, 'getAnalysisSpec', None)
+    if not callable(get_aspec):
+        return None
+    try:
+        return get_aspec()
+    except Exception:
+        return None
+
+def _current_spec_state(analysis):
+    """Informa qué hay enlazado actualmente en el Analysis:
+       - kind: 'dx' | 'at' | None
+       - obj: la spec enlazada, si existe
+    """
+    aspec = _get_analysis_spec(analysis)
+    if not aspec:
+        return (None, None)
+
+    # ¿DX ya enlazada?
+    get_dx = getattr(aspec, "getDynamicAnalysisSpec", None)
+    if callable(get_dx):
+        try:
+            dx = get_dx()
+            if dx:
+                return ("dx", dx)
+        except Exception:
+            pass
+
+    # ¿AT ya enlazada?
+    get_at = getattr(aspec, "getSpecification", None)
+    if callable(get_at):
+        try:
+            at = get_at()
+            if at:
+                return ("at", at)
+        except Exception:
+            pass
+
+    return (None, None)
+
+def _user_already_selected(analysis):
+    """True si el análisis ya tiene alguna spec elegida (manual o previa)."""
+    kind, obj = _current_spec_state(analysis)
+    return bool(obj)
 
 # -------------------------------------------------------------------
-# SELECTOR DE SPEC: PRIORIZA DX ("Especificaciones dinámicas de análisis")
+# SELECTOR DE SPEC (prioriza DX)
 # -------------------------------------------------------------------
 
 def _prefer_dx_spec(portal, analysis, ar):
-    """Intenta devolver una Spec DX adecuada. Si hay una sola, úsala.
-    Si hay varias, heurísticas simples: título, cliente."""
     setup = getattr(portal, "setup", None)
     if not setup:
         return None
@@ -157,13 +178,12 @@ def _prefer_dx_spec(portal, analysis, ar):
 
     dx_specs = [o for o in dx_folder.objectValues()
                 if getattr(o, "portal_type", "") in PORTAL_TYPES_SPECS]
-
     if not dx_specs:
         return None
     if len(dx_specs) == 1:
         return dx_specs[0]
 
-    # Heurística por título (tu ejemplo: "Quimica 3 Elementos")
+    # Heurística por título (ej: "Quimica 3 Elementos")
     wanted_titles = (u"quimica 3 elementos", u"química 3 elementos")
     for obj in dx_specs:
         try:
@@ -173,7 +193,7 @@ def _prefer_dx_spec(portal, analysis, ar):
         except Exception:
             pass
 
-    # Heurística por cliente (si la Spec DX almacena client_uid)
+    # Heurística por cliente
     client_uid = None
     try:
         client_uid = ar.aq_parent.UID() if hasattr(ar.aq_parent, 'UID') else None
@@ -185,37 +205,31 @@ def _prefer_dx_spec(portal, analysis, ar):
             if cx and cx == client_uid:
                 return obj
 
-    # Si nada matchea, devuelve la primera para que el adaptador resuelva filas
     return dx_specs[0]
-
 
 # -------------------------------------------------------------------
 # BÚSQUEDA DE SPEC
 # -------------------------------------------------------------------
 
 def _find_matching_spec(portal, analysis, ar):
-    """Devuelve la Spec para el análisis:
-       1) Prioriza DX (DynamicAnalysisSpec) en /setup/dynamicanalysisspecs
-       2) Si no hay DX, intenta AT en /bika_setup/specifications
-       3) Si no hay nada, devuelve None
-    Nota: no dependemos de índices inexistentes del catálogo; hacemos
-    traversal y filtrado en Python.
-    """
-    # A veces el análisis recién creado aún no tiene Servicio/Keyword;
-    # en ese caso dejamos que IObjectModifiedEvent reintente.
+    """DX en /setup/dynamicanalysisspecs > AT en /bika_setup/specifications > traversal."""
+    # Puede no estar listo el servicio en el mismo tick de creación
     try:
         service_uid = analysis.getServiceUID()
     except Exception:
         service_uid = None
     if not service_uid:
+        logger.info("[AutoSpec] %s: sin ServiceUID aún; se reintentará en Modified",
+                    getattr(analysis, 'getId', lambda: '?')())
         return None
 
-    # 1) Preferir DX
+    # 1) DX
     spec = _prefer_dx_spec(portal, analysis, ar)
     if spec:
+        logger.info("[AutoSpec] DX candidate: %s", getattr(spec, 'Title', lambda: spec)())
         return spec
 
-    # 2) Fallback a AT en bika_setup/specifications
+    # 2) AT
     bsetup = getattr(portal, "bika_setup", None)
     if bsetup:
         for name in ("specifications", "bika_specifications", "Specifications"):
@@ -225,7 +239,6 @@ def _find_matching_spec(portal, analysis, ar):
             at_specs = [obj for obj in at_folder.objectValues()
                         if getattr(obj, "portal_type", "") == "Specification"]
             if at_specs:
-                # Si hay varias, filtra suavemente por contexto
                 client_uid = None
                 sampletype_uid = None
                 method_uid = None
@@ -237,46 +250,62 @@ def _find_matching_spec(portal, analysis, ar):
                     pass
                 for cand in at_specs:
                     if _spec_matches(cand, service_uid, client_uid, sampletype_uid, method_uid):
+                        logger.info("[AutoSpec] AT candidate: %s", getattr(cand, 'Title', lambda: cand)())
                         return cand
+                logger.info("[AutoSpec] AT fallback (first): %s", getattr(at_specs[0], 'Title', lambda: at_specs[0])())
                 return at_specs[0]
 
-    # 3) Último recurso: traversal genérico por todas las carpetas candidatas
+    # 3) Cualquiera candidata por traversal
     for cand in _iter_specs_by_traversal(portal):
-        # Acepta la primera; el adaptador dinámico hará match de filas
+        logger.info("[AutoSpec] Traversal candidate: %s", getattr(cand, 'Title', lambda: cand)())
         return cand
 
+    logger.info("[AutoSpec] Sin Specification encontrada")
     return None
 
-
 # -------------------------------------------------------------------
-# APLICACIÓN DE SPEC
+# APLICACIÓN DE SPEC (no sobreescribe manual; idempotente)
 # -------------------------------------------------------------------
 
 def _apply_spec(analysis, spec):
-    """Asigna Specification a un Analysis respetando el modelo AT/DX de SENAITE 2.6.
-    - Si 'spec' es una DynamicAnalysisSpec (DX): la enlazamos en el AnalysisSpec del análisis.
-    - Si 'spec' es una Specification (AT): usamos setSpecification como siempre.
-    """
+    """Asigna Specification respetando SENAITE 2.6 (AT/DX) sin pisar selección manual."""
     try:
-        pt = getattr(spec, "portal_type", "") or ""
+        # 0) Si ya hay algo, no tocar (respeta selección manual / previa)
+        existing_kind, existing_obj = _current_spec_state(analysis)
+        if existing_obj:
+            logger.info("[AutoSpec] %s: ya tiene spec %s (%s); no se sobreescribe",
+                        getattr(analysis, 'Title', lambda: '?')(),
+                        getattr(existing_obj, 'Title', lambda: existing_obj)(),
+                        existing_kind or 'unknown')
+            return True
 
-        # Caso DX: DynamicAnalysisSpec (o alias)
+        pt = getattr(spec, "portal_type", "") or ""
+        spec_uid = _uid(spec)
+
+        # --- DX: enlazar dentro del AnalysisSpec ---
         if pt in ("DynamicAnalysisSpec", "dynamic_analysisspec"):
-            # Asegurar que el AnalysisSpec existe (getAnalysisSpec suele crearlo lazy)
-            get_aspec = getattr(analysis, 'getAnalysisSpec', None)
-            aspec = get_aspec() if callable(get_aspec) else None
-            if not aspec and callable(get_aspec):
-                aspec = get_aspec()
+            aspec = _get_analysis_spec(analysis)
             if not aspec:
                 raise AttributeError("No AnalysisSpec found/created for analysis %r" % analysis.getId())
 
-            # Enlazar la DX dentro del AnalysisSpec
+            # Idempotencia DX
+            get_dx = getattr(aspec, "getDynamicAnalysisSpec", None)
+            if callable(get_dx):
+                try:
+                    curr = get_dx()
+                    if curr and _uid(curr) == spec_uid:
+                        logger.info("[AutoSpec] %s: DX ya enlazada (%s); no-op",
+                                    analysis.Title(), getattr(spec, 'Title', lambda: spec)())
+                        return True
+                except Exception:
+                    pass
+
             setter = getattr(aspec, "setDynamicAnalysisSpec", None)
             if not callable(setter):
                 raise AttributeError("AnalysisSpec lacks setDynamicAnalysisSpec()")
             setter(spec)
 
-            # Opcional: limpiar ResultsRange previo para forzar recalculo dinámico
+            # Limpia ResultsRange para forzar recálculo dinámico
             try:
                 if hasattr(analysis, "setResultsRange"):
                     analysis.setResultsRange(None)
@@ -284,36 +313,57 @@ def _apply_spec(analysis, spec):
                 pass
 
             analysis.reindexObject()
+            logger.info("[AutoSpec] %s: DX aplicada → %s",
+                        analysis.Title(), getattr(spec, 'Title', lambda: spec)())
             return True
 
-        # Caso AT clásico: Specification
+        # --- AT clásico ---
+        # Idempotencia AT: si soporta getSpecification
+        aspec = _get_analysis_spec(analysis)
+        if aspec:
+            get_at = getattr(aspec, "getSpecification", None)
+            if callable(get_at):
+                try:
+                    curr = get_at()
+                    if curr and _uid(curr) == spec_uid:
+                        logger.info("[AutoSpec] %s: AT ya enlazada (%s); no-op",
+                                    analysis.Title(), getattr(spec, 'Title', lambda: spec)())
+                        return True
+                except Exception:
+                    pass
+
         if hasattr(analysis, 'setSpecification'):
             analysis.setSpecification(spec)
+        elif aspec and hasattr(aspec, 'setSpecification'):
+            aspec.setSpecification(spec)
         else:
-            # vía AnalysisSpec intermedio si aplica
-            aspec = getattr(analysis, 'getAnalysisSpec', lambda: None)()
-            if aspec and hasattr(aspec, 'setSpecification'):
-                aspec.setSpecification(spec)
+            raise AttributeError("Neither analysis.setSpecification nor aspec.setSpecification available")
 
         analysis.reindexObject()
+        logger.info("[AutoSpec] %s: AT aplicada → %s",
+                    analysis.Title(), getattr(spec, 'Title', lambda: spec)())
         return True
 
     except Exception as e:
-        logger.warn("[AutoSpec] No se pudo asignar Spec a %s: %r", analysis.getId(), e)
+        logger.warn("[AutoSpec] No se pudo asignar Spec a %s: %r",
+                    getattr(analysis, 'getId', lambda: '?')(), e)
         return False
 
-
 # -------------------------------------------------------------------
-# SUBSCRIBERS
+# SUBSCRIBERS ESPECÍFICOS (por interfaz)
 # -------------------------------------------------------------------
 
 def apply_specs_for_ar(ar, event):
-    """Al crear el AR, recorre sus análisis y aplica Spec."""
+    """AR creado ⇒ aplicar spec a todos sus Analysis (solo si no hay selección manual)."""
     if not IObjectAddedEvent.providedBy(event):
         return
     portal = api.get_portal()
     analyses = getattr(ar, 'getAnalyses', lambda: [])() or []
     for an in analyses:
+        # respeta manual
+        if _user_already_selected(an):
+            logger.info("[AutoSpec] %s: ya tenía selección; skip", an.Title())
+            continue
         spec = _find_matching_spec(portal, an, ar)
         if spec:
             ok = _apply_spec(an, spec)
@@ -321,13 +371,16 @@ def apply_specs_for_ar(ar, event):
                         getattr(spec, 'Title', lambda: spec)(),
                         an.Title(), "OK" if ok else "FAIL")
 
-
 def apply_spec_for_analysis(analysis, event):
-    """Al CREARSE o MODIFICARSE un análisis, intenta aplicar Spec."""
+    """Analysis creado/modificado ⇒ intentar aplicar spec (sin pisar manual)."""
     if not (IObjectAddedEvent.providedBy(event) or IObjectModifiedEvent.providedBy(event)):
         return
+    # respeta manual
+    if _user_already_selected(analysis):
+        logger.info("[AutoSpec] %s: ya tenía selección; skip", analysis.Title())
+        return
 
-    # Localiza el AR
+    # Localiza AR
     ar = getattr(analysis, 'getAnalysisRequest', lambda: None)()
     if not ar:
         parent = getattr(analysis, 'aq_parent', None)
@@ -343,3 +396,25 @@ def apply_spec_for_analysis(analysis, event):
         logger.info("[AutoSpec] %s -> %s [%s]",
                     getattr(spec, 'Title', lambda: spec)(),
                     analysis.Title(), "OK" if ok else "FAIL")
+
+# -------------------------------------------------------------------
+# SUBSCRIBERS UNIVERSALES (por si la interfaz no calza en tu build)
+# -------------------------------------------------------------------
+
+def on_object_added(obj, event):
+    """Fallback Added: filtramos por portal_type y respetamos manual."""
+    if not IObjectAddedEvent.providedBy(event):
+        return
+    pt = getattr(obj, 'portal_type', '')
+    if pt == 'AnalysisRequest':
+        apply_specs_for_ar(obj, event)
+    elif pt == 'Analysis':
+        apply_spec_for_analysis(obj, event)
+
+def on_object_modified(obj, event):
+    """Fallback Modified: filtramos por portal_type y respetamos manual."""
+    if not IObjectModifiedEvent.providedBy(event):
+        return
+    pt = getattr(obj, 'portal_type', '')
+    if pt == 'Analysis':
+        apply_spec_for_analysis(obj, event)
