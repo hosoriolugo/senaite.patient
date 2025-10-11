@@ -160,8 +160,54 @@ def _current_spec_state(analysis):
 
 def _user_already_selected(analysis):
     """True si el análisis ya tiene alguna spec elegida (manual o previa)."""
+    # Mantener compatibilidad: si ya hay ResultsRange, también considerarlo manual/previo
+    try:
+        rr = getattr(analysis, "getResultsRange", lambda: None)()
+        if rr:
+            return True
+    except Exception:
+        pass
     kind, obj = _current_spec_state(analysis)
     return bool(obj)
+
+# -------------------- NUEVO: asegurar AnalysisSpec interno --------------------
+
+def _ensure_analysis_spec_initialized(analysis):
+    """Garantiza que el AnalysisSpec interno exista antes de aplicar la Spec.
+    Estrategia:
+      1) Si getAnalysisSpec ya devuelve algo, listo.
+      2) Si no, intentar 'despertar' la estructura llamando setResultsRange({}).
+      3) Re-chequear y devolver True/False.
+    """
+    # 1) ¿ya existe?
+    try:
+        aspec = getattr(analysis, "getAnalysisSpec", lambda: None)()
+        if aspec:
+            return True
+    except Exception:
+        pass
+
+    # 2) Forzar inicialización suave
+    try:
+        set_rr = getattr(analysis, "setResultsRange", None)
+        if callable(set_rr):
+            # No ponemos datos aún; solo creamos el contenedor
+            set_rr({})
+            # Algunos builds requieren reindex para materializar metadatos
+            try:
+                analysis.reindexObject()
+            except Exception:
+                pass
+    except Exception as e:
+        logger.warn("[AutoSpec] No se pudo inicializar AnalysisSpec para %s: %r",
+                    getattr(analysis, 'getId', lambda: 'analysis')(), e)
+
+    # 3) Re-chequeo
+    try:
+        aspec = getattr(analysis, "getAnalysisSpec", lambda: None)()
+        return bool(aspec)
+    except Exception:
+        return False
 
 # -------------------------------------------------------------------
 # SELECTOR DE SPEC (prioriza DX)
@@ -282,6 +328,12 @@ def _apply_spec(analysis, spec):
         pt = getattr(spec, "portal_type", "") or ""
         spec_uid = _uid(spec)
 
+        # 0.5) Asegurar que el AnalysisSpec interno exista antes de cualquier set*
+        if not _ensure_analysis_spec_initialized(analysis):
+            raise AttributeError("No AnalysisSpec found/created for analysis '{}'".format(
+                getattr(analysis, 'getKeyword', lambda: analysis)()
+            ))
+
         # --- DX: enlazar dentro del AnalysisSpec ---
         if pt in ("DynamicAnalysisSpec", "dynamic_analysisspec"):
             aspec = _get_analysis_spec(analysis)
@@ -312,7 +364,11 @@ def _apply_spec(analysis, spec):
             except Exception:
                 pass
 
-            analysis.reindexObject()
+            try:
+                analysis.reindexObject()
+            except Exception:
+                pass
+
             logger.info("[AutoSpec] %s: DX aplicada → %s",
                         analysis.Title(), getattr(spec, 'Title', lambda: spec)())
             return True
@@ -339,7 +395,11 @@ def _apply_spec(analysis, spec):
         else:
             raise AttributeError("Neither analysis.setSpecification nor aspec.setSpecification available")
 
-        analysis.reindexObject()
+        try:
+            analysis.reindexObject()
+        except Exception:
+            pass
+
         logger.info("[AutoSpec] %s: AT aplicada → %s",
                     analysis.Title(), getattr(spec, 'Title', lambda: spec)())
         return True
