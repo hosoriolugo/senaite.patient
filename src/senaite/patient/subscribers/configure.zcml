@@ -32,7 +32,7 @@
        ADICIÓN: Auto-aplicar Specifications (llenar “± Especificación”)
        ========================================================= -->
 
-  <!-- Al CREAR un AnalysisRequest (evento genérico zope.lifecycleevent) -->
+  <!-- Al CREAR un AnalysisRequest -->
   <subscriber
       for="bika.lims.interfaces.IAnalysisRequest
            zope.lifecycleevent.interfaces.IObjectAddedEvent"
@@ -43,6 +43,13 @@
   <subscriber
       for="bika.lims.interfaces.IAnalysis
            zope.lifecycleevent.interfaces.IObjectAddedEvent"
+      handler=".specs.apply_spec_for_analysis"
+  />
+
+  <!-- ✅ ADICIÓN NECESARIA: reintentar cuando el Analysis ya tiene servicio/keyword -->
+  <subscriber
+      for="bika.lims.interfaces.IAnalysis
+           zope.lifecycleevent.interfaces.IObjectModifiedEvent"
       handler=".specs.apply_spec_for_analysis"
   />
 
