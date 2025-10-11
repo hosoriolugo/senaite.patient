@@ -46,11 +46,29 @@
       handler=".specs.apply_spec_for_analysis"
   />
 
-  <!-- ✅ ADICIÓN NECESARIA: reintentar cuando el Analysis ya tiene servicio/keyword -->
+  <!-- ✅ Reintentar cuando el Analysis ya tiene servicio/keyword -->
   <subscriber
       for="bika.lims.interfaces.IAnalysis
            zope.lifecycleevent.interfaces.IObjectModifiedEvent"
       handler=".specs.apply_spec_for_analysis"
+  />
+
+  <!-- =========================================================
+       FALLBACKS UNIVERSALES (no rompen nada y aseguran cobertura)
+       ========================================================= -->
+
+  <!-- Fallback universal: Added (filtra por portal_type en specs.py) -->
+  <subscriber
+      for="zope.interface.Interface
+           zope.lifecycleevent.interfaces.IObjectAddedEvent"
+      handler=".specs.on_object_added"
+  />
+
+  <!-- Fallback universal: Modified (filtra por portal_type en specs.py) -->
+  <subscriber
+      for="zope.interface.Interface
+           zope.lifecycleevent.interfaces.IObjectModifiedEvent"
+      handler=".specs.on_object_modified"
   />
 
 </configure>
