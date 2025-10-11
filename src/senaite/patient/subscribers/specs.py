@@ -1,7 +1,23 @@
+# src/senaite/patient/subscribers/specs.py
 # -*- coding: utf-8 -*-
 from Products.CMFCore.utils import getToolByName
 from zope.lifecycleevent.interfaces import IObjectAddedEvent, IObjectModifiedEvent
 from bika.lims import api, logger
+
+# Compatibilidad Py2/Py3
+try:
+    basestring
+except NameError:  # Py3
+    basestring = str
+
+try:
+    from Products.CMFPlone.utils import safe_unicode as _safe_unicode
+except Exception:
+    def _safe_unicode(x):
+        try:
+            return str(x)
+        except Exception:
+            return x
 
 # -------------------------------------------------------------------
 # SOPORTE A AT y DX
@@ -55,9 +71,8 @@ def _obj_uid(obj, attr_name, default=None):
         val = getter() if callable(getter) else None
         if val and hasattr(val, "UID"):
             return val.UID()
-        from Products.CMFPlone.utils import safe_unicode
         if isinstance(val, basestring):
-            return safe_unicode(val)
+            return _safe_unicode(val)
     except Exception:
         pass
     # 3) Campo llano DX: <base>_uid
@@ -112,6 +127,42 @@ def _iter_specs_by_traversal(portal):
                 continue
     except Exception:
         return
+
+# -------------------------------------------------------------------
+# LOGGING DE CAPACIDADES (diagnóstico)
+# -------------------------------------------------------------------
+
+def _log_capabilities(analysis, aspec):
+    """Loggea qué setters están disponibles para DX/AT, en Analysis y en AnalysisSpec."""
+    try:
+        a_id = getattr(analysis, 'getId', lambda: '?')()
+        a_kw = getattr(analysis, 'getKeyword', lambda: a_id)()
+        svc_uid = None
+        try:
+            svc_uid = getattr(analysis, 'getServiceUID', lambda: None)()
+        except Exception:
+            pass
+
+        caps = {
+            "analysis": {
+                "setSpecification": callable(getattr(analysis, "setSpecification", None)),
+                "setSpecificationUID": callable(getattr(analysis, "setSpecificationUID", None)),
+                "setDynamicAnalysisSpec": callable(getattr(analysis, "setDynamicAnalysisSpec", None)),
+                "setDynamicAnalysisSpecUID": callable(getattr(analysis, "setDynamicAnalysisSpecUID", None)),
+            },
+            "aspec": {
+                "exists": bool(aspec),
+                "setSpecification": bool(aspec and callable(getattr(aspec, "setSpecification", None))),
+                "setSpecificationUID": bool(aspec and callable(getattr(aspec, "setSpecificationUID", None))),
+                "setDynamicAnalysisSpec": bool(aspec and callable(getattr(aspec, "setDynamicAnalysisSpec", None))),
+                "setDynamicAnalysisSpecUID": bool(aspec and callable(getattr(aspec, "setDynamicAnalysisSpecUID", None))),
+                "getSpecification": bool(aspec and callable(getattr(aspec, "getSpecification", None))),
+                "getDynamicAnalysisSpec": bool(aspec and callable(getattr(aspec, "getDynamicAnalysisSpec", None))),
+            }
+        }
+        logger.info("[AutoSpec][caps] %s svc=%s caps=%r", a_kw, svc_uid, caps)
+    except Exception as e:
+        logger.warn("[AutoSpec][caps] fallo al loggear capacidades: %r", e)
 
 # -------------------------------------------------------------------
 # ESTADO ACTUAL DEL ANALYSIS: ¿ya hay algo elegido por el usuario?
@@ -417,7 +468,12 @@ def _find_matching_spec(portal, analysis, ar):
 # -------------------------------------------------------------------
 
 def _apply_spec(analysis, spec):
-    """Asigna Specification respetando SENAITE 2.6 (AT/DX) sin pisar selección manual."""
+    """Asigna Specification respetando SENAITE 2.6 (AT/DX) sin pisar selección manual.
+       Estrategia:
+       1) Probar setters directos por UID/objeto en Analysis (DX/AT).
+       2) Asegurar/crear AnalysisSpec embebido y setear en él.
+       3) Reindex y limpiar ResultsRange si corresponde.
+    """
     try:
         # 0) Si ya hay algo, no tocar (respeta selección manual / previa)
         existing_kind, existing_obj = _current_spec_state(analysis)
@@ -431,21 +487,69 @@ def _apply_spec(analysis, spec):
         pt = getattr(spec, "portal_type", "") or ""
         spec_uid = _uid(spec)
 
-        # 0.5) Asegurar que el AnalysisSpec interno exista antes de cualquier set*
+        # Log de capacidades antes de tocar nada
+        _log_capabilities(analysis, _get_analysis_spec(analysis))
+
+        # --- 1) Intento preferente: setters directos en Analysis ---
+        if pt in ("DynamicAnalysisSpec", "dynamic_analysisspec"):
+            for setter_name, value in (
+                ("setDynamicAnalysisSpecUID", spec_uid),    # UID explícito
+                ("setDynamicAnalysisSpec", spec),           # objeto
+                ("setDynamicAnalysisSpec", spec_uid),       # algunos builds aceptan UID aquí
+            ):
+                setter = getattr(analysis, setter_name, None)
+                if callable(setter):
+                    try:
+                        setter(value)
+                        logger.info("[AutoSpec] %s: DX asignada en Analysis vía %s",
+                                    analysis.Title(), setter_name)
+                        # limpieza RR para recálculo dinámico
+                        try:
+                            if hasattr(analysis, "setResultsRange"):
+                                analysis.setResultsRange(None)
+                        except Exception:
+                            pass
+                        try:
+                            analysis.reindexObject()
+                        except Exception:
+                            pass
+                        return True
+                    except Exception:
+                        pass
+
+        else:  # AT
+            for setter_name, value in (
+                ("setSpecificationUID", spec_uid),    # UID explícito
+                ("setSpecification", spec_uid),       # algunos builds aceptan UID
+                ("setSpecification", spec),           # objeto
+            ):
+                setter = getattr(analysis, setter_name, None)
+                if callable(setter):
+                    try:
+                        setter(value)
+                        logger.info("[AutoSpec] %s: AT asignada en Analysis vía %s",
+                                    analysis.Title(), setter_name)
+                        try:
+                            analysis.reindexObject()
+                        except Exception:
+                            pass
+                        return True
+                    except Exception:
+                        pass
+
+        # --- 2) Asegurar AnalysisSpec y setear en él ---
         if not _ensure_analysis_spec_initialized(analysis):
             raise AttributeError("No AnalysisSpec found/created for analysis '{}'".format(
                 getattr(analysis, 'getKeyword', lambda: analysis)()
             ))
 
-        # --- DX: enlazar dentro del AnalysisSpec ---
-        if pt in ("DynamicAnalysisSpec", "dynamic_analysisspec"):
-            aspec = _get_analysis_spec(analysis)
-            if not aspec:
-                raise AttributeError("No AnalysisSpec found/created for analysis %r" % analysis.getId())
+        aspec = _get_analysis_spec(analysis)
+        _log_capabilities(analysis, aspec)
 
+        if pt in ("DynamicAnalysisSpec", "dynamic_analysisspec"):
             # Idempotencia DX
-            get_dx = getattr(aspec, "getDynamicAnalysisSpec", None)
             try:
+                get_dx = getattr(aspec, "getDynamicAnalysisSpec", None)
                 curr = get_dx() if callable(get_dx) else None
                 if curr and _uid(curr) == spec_uid:
                     logger.info("[AutoSpec] %s: DX ya enlazada (%s); no-op",
@@ -454,46 +558,38 @@ def _apply_spec(analysis, spec):
             except Exception:
                 pass
 
-            # Soportar setters que esperan objeto o UID
-            tried = False
             for setter_name, value in (
+                ("setDynamicAnalysisSpecUID", spec_uid),    # UID explícito preferido
                 ("setDynamicAnalysisSpec", spec),           # objeto
-                ("setDynamicAnalysisSpec", spec_uid),       # UID (algunos builds lo aceptan)
-                ("setDynamicAnalysisSpecUID", spec_uid),    # UID explícito
+                ("setDynamicAnalysisSpec", spec_uid),       # UID tolerado
             ):
                 setter = getattr(aspec, setter_name, None)
                 if callable(setter):
                     try:
                         setter(value)
-                        tried = True
-                        break
+                        try:
+                            if hasattr(analysis, "setResultsRange"):
+                                analysis.setResultsRange(None)
+                        except Exception:
+                            pass
+                        try:
+                            analysis.reindexObject()
+                        except Exception:
+                            pass
+                        logger.info("[AutoSpec] %s: DX aplicada en AnalysisSpec vía %s → %s",
+                                    analysis.Title(), setter_name,
+                                    getattr(spec, 'Title', lambda: spec)())
+                        return True
                     except Exception:
                         pass
-            if not tried:
-                raise AttributeError("AnalysisSpec no expone setter DX compatible")
 
-            # Limpia ResultsRange para forzar recálculo dinámico
-            try:
-                if hasattr(analysis, "setResultsRange"):
-                    analysis.setResultsRange(None)
-            except Exception:
-                pass
-
-            try:
-                analysis.reindexObject()
-            except Exception:
-                pass
-
-            logger.info("[AutoSpec] %s: DX aplicada → %s",
-                        analysis.Title(), getattr(spec, 'Title', lambda: spec)())
-            return True
+            raise AttributeError("AnalysisSpec no expone setter DX compatible")
 
         # --- AT clásico ---
-        aspec = _get_analysis_spec(analysis)
         if aspec:
             # Idempotencia AT
-            get_at = getattr(aspec, "getSpecification", None)
             try:
+                get_at = getattr(aspec, "getSpecification", None)
                 curr = get_at() if callable(get_at) else None
                 if curr and _uid(curr) == spec_uid:
                     logger.info("[AutoSpec] %s: AT ya enlazada (%s); no-op",
@@ -502,21 +598,23 @@ def _apply_spec(analysis, spec):
             except Exception:
                 pass
 
-        # Soportar setters en Analysis o en AnalysisSpec y en sus variantes por UID
         set_ok = False
-        for owner in (analysis, aspec):
+        for owner_name, owner in (("AnalysisSpec", aspec), ("Analysis", analysis)):
             if not owner:
                 continue
             for setter_name, value in (
+                ("setSpecificationUID", spec_uid),    # UID explícito preferido
+                ("setSpecification", spec_uid),       # UID tolerado
                 ("setSpecification", spec),           # objeto
-                ("setSpecification", spec_uid),       # UID
-                ("setSpecificationUID", spec_uid),    # UID explícito
             ):
                 setter = getattr(owner, setter_name, None)
                 if callable(setter):
                     try:
                         setter(value)
                         set_ok = True
+                        logger.info("[AutoSpec] %s: AT aplicada en %s vía %s → %s",
+                                    analysis.Title(), owner_name, setter_name,
+                                    getattr(spec, 'Title', lambda: spec)())
                         break
                     except Exception:
                         pass
@@ -531,8 +629,6 @@ def _apply_spec(analysis, spec):
         except Exception:
             pass
 
-        logger.info("[AutoSpec] %s: AT aplicada → %s",
-                    analysis.Title(), getattr(spec, 'Title', lambda: spec)())
         return True
 
     except Exception as e:
