@@ -2,30 +2,48 @@
     xmlns="http://namespaces.zope.org/zope"
     i18n_domain="senaite.patient">
 
-  <!-- After upgrade step event handler -->
+  <!-- After upgrade step event handler (SE MANTIENE) -->
   <subscriber
-    for="senaite.core.events.upgrade.IAfterUpgradeStepEvent"
-    handler="senaite.patient.subscribers.upgrade.afterUpgradeStepHandler"
+      for="senaite.core.events.upgrade.IAfterUpgradeStepEvent"
+      handler="senaite.patient.subscribers.upgrade.afterUpgradeStepHandler"
   />
-  
-  <!-- Sample modified -->
+
+  <!-- Sample modified (SE MANTIENE) -->
   <subscriber
       for="bika.lims.interfaces.IAnalysisRequest
            zope.lifecycleevent.interfaces.IObjectModifiedEvent"
       handler=".analysisrequest.on_object_edited"
-      />
+  />
 
-  <!-- Sample created -->
+  <!-- Sample created (SE MANTIENE) -->
   <subscriber
       for="bika.lims.interfaces.IAnalysisRequest
            Products.Archetypes.interfaces.IObjectInitializedEvent"
       handler=".analysisrequest.on_object_created"
-      />
+  />
 
   <subscriber
       for="senaite.patient.browser.controlpanel.IPatientControlPanel
            zope.lifecycleevent.interfaces.IObjectModifiedEvent"
       handler=".controlpanel.on_patient_settings_changed"
-      />
+  />
+
+  <!-- =========================================================
+       ADICIÓN: Auto-aplicar Specifications (llenar “± Especificación”)
+       ========================================================= -->
+
+  <!-- Al CREAR un AnalysisRequest (evento genérico zope.lifecycleevent) -->
+  <subscriber
+      for="bika.lims.interfaces.IAnalysisRequest
+           zope.lifecycleevent.interfaces.IObjectAddedEvent"
+      handler=".specs.apply_specs_for_ar"
+  />
+
+  <!-- Al AÑADIR un Analysis dentro de un AR -->
+  <subscriber
+      for="bika.lims.interfaces.IAnalysis
+           zope.lifecycleevent.interfaces.IObjectAddedEvent"
+      handler=".specs.apply_spec_for_analysis"
+  />
 
 </configure>
