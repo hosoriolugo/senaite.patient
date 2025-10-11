@@ -32,22 +32,6 @@
     <implements interface="senaite.patient.interfaces.IRoutineAnalysis" />
   </class>
 
-  <!-- =========================================================
-       ADICIÓN: Registro como IResultsRange para que SENAITE lo consulte
-       ========================================================= -->
-  <adapter
-      for="bika.lims.interfaces.IRoutineAnalysis"
-      provides="bika.lims.interfaces.IResultsRange"
-      factory=".dynamicresultsrange.PatientDynamicResultsRange"
-      name="patient.dynamic.resultsrange" />
-
-  <!-- (Opcional, pero útil) también para IAnalysis directo -->
-  <adapter
-      for="bika.lims.interfaces.IAnalysis"
-      provides="bika.lims.interfaces.IResultsRange"
-      factory=".dynamicresultsrange.PatientDynamicResultsRange"
-      name="patient.dynamic.resultsrange.analysis" />
-
   <!-- Samples listing with additional filters and columns -->
   <subscriber
       for="bika.lims.browser.analysisrequest.AnalysisRequestsView
