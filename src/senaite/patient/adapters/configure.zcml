@@ -4,10 +4,10 @@
 
   <!-- Guard handler for Sample (aka AnalysisRequest) content type -->
   <adapter
-    for="bika.lims.interfaces.IAnalysisRequest"
-    provides="bika.lims.interfaces.IGuardAdapter"
-    factory=".guards.SampleGuardAdapter"
-    name="senaite.patient.adapter.guard.sample" />
+      for="bika.lims.interfaces.IAnalysisRequest"
+      provides="bika.lims.interfaces.IGuardAdapter"
+      factory=".guards.SampleGuardAdapter"
+      name="senaite.patient.adapter.guard.sample" />
 
   <!-- Group Key Provider to allow only 1 Patient per Report -->
   <adapter factory=".impress.GroupKeyProvider" />
@@ -19,38 +19,60 @@
       for="*"
       name="senaite.patient.adapter.widgetvisibility.gender" />
 
-  <!-- Dynamic Results Range Adapter -->
+  <!-- =========================================================
+       Dynamic Results Range (TU ADAPTADOR EXISTENTE — SE MANTIENE)
+       ========================================================= -->
   <adapter
       for="senaite.patient.interfaces.IRoutineAnalysis"
       factory=".dynamicresultsrange.PatientDynamicResultsRange"
-      provides="bika.lims.interfaces.IDynamicResultsRange"/>
+      provides="bika.lims.interfaces.IDynamicResultsRange" />
+
+  <!-- Aseguramos que Analysis implemente tu IRoutineAnalysis (SE MANTIENE) -->
   <class class="bika.lims.content.analysis.Analysis">
     <implements interface="senaite.patient.interfaces.IRoutineAnalysis" />
   </class>
 
+  <!-- =========================================================
+       ADICIÓN: Registro como IResultsRange para que SENAITE lo consulte
+       ========================================================= -->
+  <adapter
+      for="bika.lims.interfaces.IRoutineAnalysis"
+      provides="bika.lims.interfaces.IResultsRange"
+      factory=".dynamicresultsrange.PatientDynamicResultsRange"
+      name="patient.dynamic.resultsrange" />
+
+  <!-- (Opcional, pero útil) también para IAnalysis directo -->
+  <adapter
+      for="bika.lims.interfaces.IAnalysis"
+      provides="bika.lims.interfaces.IResultsRange"
+      factory=".dynamicresultsrange.PatientDynamicResultsRange"
+      name="patient.dynamic.resultsrange.analysis" />
+
   <!-- Samples listing with additional filters and columns -->
   <subscriber
-    for="bika.lims.browser.analysisrequest.AnalysisRequestsView
-         bika.lims.interfaces.IAnalysisRequestsFolder"
-    provides="senaite.app.listing.interfaces.IListingViewAdapter"
-    factory=".listing.SamplesListingAdapter" />
+      for="bika.lims.browser.analysisrequest.AnalysisRequestsView
+           bika.lims.interfaces.IAnalysisRequestsFolder"
+      provides="senaite.app.listing.interfaces.IListingViewAdapter"
+      factory=".listing.SamplesListingAdapter" />
+
   <subscriber
-    for="bika.lims.browser.analysisrequest.AnalysisRequestsView
-         bika.lims.interfaces.IClient"
-    provides="senaite.app.listing.interfaces.IListingViewAdapter"
-    factory=".listing.SamplesListingAdapter" />
+      for="bika.lims.browser.analysisrequest.AnalysisRequestsView
+           bika.lims.interfaces.IClient"
+      provides="senaite.app.listing.interfaces.IListingViewAdapter"
+      factory=".listing.SamplesListingAdapter" />
+
   <subscriber
-    for="bika.lims.browser.analysisrequest.AnalysisRequestsView
-         bika.lims.interfaces.IBatch"
-    provides="senaite.app.listing.interfaces.IListingViewAdapter"
-    factory=".listing.SamplesListingAdapter" />
+      for="bika.lims.browser.analysisrequest.AnalysisRequestsView
+           bika.lims.interfaces.IBatch"
+      provides="senaite.app.listing.interfaces.IListingViewAdapter"
+      factory=".listing.SamplesListingAdapter" />
 
   <!-- Listing adapter for patient samples -->
   <subscriber
-    for="senaite.patient.browser.patient.samples.SamplesView
-         senaite.patient.interfaces.IPatient"
-    provides="senaite.app.listing.interfaces.IListingViewAdapter"
-    factory=".listing.SamplesListingAdapter" />
+      for="senaite.patient.browser.patient.samples.SamplesView
+           senaite.patient.interfaces.IPatient"
+      provides="senaite.app.listing.interfaces.IListingViewAdapter"
+      factory=".listing.SamplesListingAdapter" />
 
   <!-- Patient: add form handler -->
   <adapter
