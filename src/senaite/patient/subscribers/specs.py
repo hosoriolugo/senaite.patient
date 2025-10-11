@@ -154,7 +154,7 @@ def _log_capabilities(analysis, aspec):
                 "exists": bool(aspec),
                 "setSpecification": bool(aspec and callable(getattr(aspec, "setSpecification", None))),
                 "setSpecificationUID": bool(aspec and callable(getattr(aspec, "setSpecificationUID", None))),
-                "setDynamicAnalysisSpec": bool(aspec and callable(getattr(aspec, "setDynamicAnalysisSpec", None))),
+                "setDynamicAnalysisSpec": bool(aspec and callable(getattr(aspec, "setDynamicAnalysisSpec", None))()),
                 "setDynamicAnalysisSpecUID": bool(aspec and callable(getattr(aspec, "setDynamicAnalysisSpecUID", None))),
                 "getSpecification": bool(aspec and callable(getattr(aspec, "getSpecification", None))),
                 "getDynamicAnalysisSpec": bool(aspec and callable(getattr(aspec, "getDynamicAnalysisSpec", None))),
@@ -471,6 +471,7 @@ def _apply_spec(analysis, spec):
     """Asigna Specification respetando SENAITE 2.6 (AT/DX) sin pisar selección manual.
        Estrategia:
        1) Probar setters directos por UID/objeto en Analysis (DX/AT).
+          Para DX, si faltan setters DX, usar puente genérico setSpecification*(DX).
        2) Asegurar/crear AnalysisSpec embebido y setear en él.
        3) Reindex y limpiar ResultsRange si corresponde.
     """
@@ -492,6 +493,7 @@ def _apply_spec(analysis, spec):
 
         # --- 1) Intento preferente: setters directos en Analysis ---
         if pt in ("DynamicAnalysisSpec", "dynamic_analysisspec"):
+            # 1a) Setters DX nativos (si existen)
             for setter_name, value in (
                 ("setDynamicAnalysisSpecUID", spec_uid),    # UID explícito
                 ("setDynamicAnalysisSpec", spec),           # objeto
@@ -503,7 +505,31 @@ def _apply_spec(analysis, spec):
                         setter(value)
                         logger.info("[AutoSpec] %s: DX asignada en Analysis vía %s",
                                     analysis.Title(), setter_name)
-                        # limpieza RR para recálculo dinámico
+                        try:
+                            if hasattr(analysis, "setResultsRange"):
+                                analysis.setResultsRange(None)
+                        except Exception:
+                            pass
+                        try:
+                            analysis.reindexObject()
+                        except Exception:
+                            pass
+                        return True
+                    except Exception:
+                        pass
+
+            # 1b) 🔁 Puente genérico para DX: usar setSpecification*(DX)
+            for setter_name, value in (
+                ("setSpecificationUID", spec_uid),    # UID explícito
+                ("setSpecification", spec_uid),       # UID tolerado
+                ("setSpecification", spec),           # objeto
+            ):
+                setter = getattr(analysis, setter_name, None)
+                if callable(setter):
+                    try:
+                        setter(value)
+                        logger.info("[AutoSpec] %s: DX aplicada en Analysis vía puente %s",
+                                    analysis.Title(), setter_name)
                         try:
                             if hasattr(analysis, "setResultsRange"):
                                 analysis.setResultsRange(None)
@@ -539,6 +565,7 @@ def _apply_spec(analysis, spec):
 
         # --- 2) Asegurar AnalysisSpec y setear en él ---
         if not _ensure_analysis_spec_initialized(analysis):
+            # Si llegamos aquí y no pudimos inicializar, ya probamos el puente para DX.
             raise AttributeError("No AnalysisSpec found/created for analysis '{}'".format(
                 getattr(analysis, 'getKeyword', lambda: analysis)()
             ))
