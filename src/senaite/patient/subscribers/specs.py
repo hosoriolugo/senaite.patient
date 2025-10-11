@@ -253,16 +253,51 @@ def _find_matching_spec(portal, analysis, ar):
 # -------------------------------------------------------------------
 
 def _apply_spec(analysis, spec):
-    """Asigna la Spec al análisis respetando SENAITE 2.6 (AT/DX)."""
+    """Asigna Specification a un Analysis respetando el modelo AT/DX de SENAITE 2.6.
+    - Si 'spec' es una DynamicAnalysisSpec (DX): la enlazamos en el AnalysisSpec del análisis.
+    - Si 'spec' es una Specification (AT): usamos setSpecification como siempre.
+    """
     try:
+        pt = getattr(spec, "portal_type", "") or ""
+
+        # Caso DX: DynamicAnalysisSpec (o alias)
+        if pt in ("DynamicAnalysisSpec", "dynamic_analysisspec"):
+            # Asegurar que el AnalysisSpec existe (getAnalysisSpec suele crearlo lazy)
+            get_aspec = getattr(analysis, 'getAnalysisSpec', None)
+            aspec = get_aspec() if callable(get_aspec) else None
+            if not aspec and callable(get_aspec):
+                aspec = get_aspec()
+            if not aspec:
+                raise AttributeError("No AnalysisSpec found/created for analysis %r" % analysis.getId())
+
+            # Enlazar la DX dentro del AnalysisSpec
+            setter = getattr(aspec, "setDynamicAnalysisSpec", None)
+            if not callable(setter):
+                raise AttributeError("AnalysisSpec lacks setDynamicAnalysisSpec()")
+            setter(spec)
+
+            # Opcional: limpiar ResultsRange previo para forzar recalculo dinámico
+            try:
+                if hasattr(analysis, "setResultsRange"):
+                    analysis.setResultsRange(None)
+            except Exception:
+                pass
+
+            analysis.reindexObject()
+            return True
+
+        # Caso AT clásico: Specification
         if hasattr(analysis, 'setSpecification'):
             analysis.setSpecification(spec)
         else:
+            # vía AnalysisSpec intermedio si aplica
             aspec = getattr(analysis, 'getAnalysisSpec', lambda: None)()
             if aspec and hasattr(aspec, 'setSpecification'):
                 aspec.setSpecification(spec)
+
         analysis.reindexObject()
         return True
+
     except Exception as e:
         logger.warn("[AutoSpec] No se pudo asignar Spec a %s: %r", analysis.getId(), e)
         return False
