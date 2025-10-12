@@ -1,17 +1,15 @@
-<registry
-    xmlns:i18n="http://xml.zope.org/namespaces/i18n"
-    i18n:domain="senaite.patient">
+<registry xmlns:i18n="http://xml.zope.org/namespaces/i18n"
+          i18n:domain="senaite.patient">
 
-  <!-- Tu panel de control (se mantiene tal cual) -->
+  <!-- Lo tuyo: ajustes del panel de control de patient -->
   <records
       interface="senaite.patient.browser.controlpanel.IPatientControlPanel"
       prefix="senaite.patient" />
 
-  <!-- Shim: asegura que exista la clave de senaite.core que está dando error -->
+  <!-- Shim para silenciar el missing registry de core -->
   <record name="senaite.core.sampleview_collapse_ast_analysis_table">
-    <field type="zope.schema.Bool" />
+    <field type="plone.registry.field.Bool" />
     <value>False</value>
   </record>
 
 </registry>
-
