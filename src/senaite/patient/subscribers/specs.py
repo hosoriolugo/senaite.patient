@@ -82,17 +82,134 @@ def _obj_uid(obj, attr_name, default=None):
         pass
     return default
 
+def _get_analysis_spec(analysis):
+    get_aspec = getattr(analysis, 'getAnalysisSpec', None)
+    if callable(get_aspec):
+        for args, kwargs in (((), {'create': True}), ((True,), {}), ((), {})):
+            try:
+                aspec = get_aspec(*args, **kwargs)
+                if aspec:
+                    return aspec
+            except TypeError:
+                pass
+            except Exception:
+                pass
+
+    for alt in ('getOrCreateAnalysisSpec', 'ensureAnalysisSpec', '_get_or_create_analysis_spec'):
+        try:
+            fn = getattr(analysis, alt, None)
+            if callable(fn):
+                aspec = fn()
+                if aspec:
+                    return aspec
+        except Exception:
+            pass
+
+    try:
+        schema = getattr(analysis, 'Schema', lambda: None)()
+        if schema and 'AnalysisSpec' in schema:
+            aspec = schema['AnalysisSpec'].get(analysis)
+            if aspec:
+                return aspec
+    except Exception:
+        pass
+
+    return None
+
+def _force_create_analysis_spec_legacy(analysis):
+    try:
+        if _get_analysis_spec(analysis):
+            return True
+
+        try:
+            from bika.lims import api as bika_api
+            aspec = bika_api.create(container=analysis, type_name="AnalysisSpec", id="analysisspec")
+            if aspec:
+                try:
+                    analysis.reindexObject()
+                except Exception:
+                    pass
+                return _get_analysis_spec(analysis) is not None
+        except Exception:
+            pass
+
+        try:
+            if hasattr(analysis, "invokeFactory"):
+                new_id = None
+                try:
+                    new_id = analysis.invokeFactory("AnalysisSpec", id="analysisspec")
+                except Exception:
+                    new_id = analysis.invokeFactory("AnalysisSpec")
+                if new_id or True:
+                    try:
+                        analysis.reindexObject()
+                    except Exception:
+                        pass
+                    return _get_analysis_spec(analysis) is not None
+        except Exception:
+            pass
+
+    except Exception:
+        pass
+    return False
+
+def _ensure_analysis_spec_initialized(analysis):
+    if _get_analysis_spec(analysis):
+        return True
+
+    try:
+        get_aspec = getattr(analysis, 'getAnalysisSpec', None)
+        if callable(get_aspec):
+            for args, kwargs in (((), {'create': True}), ((True,), {})):
+                try:
+                    aspec = get_aspec(*args, **kwargs)
+                    if aspec:
+                        return True
+                except TypeError:
+                    pass
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    for alt in ('getOrCreateAnalysisSpec', 'ensureAnalysisSpec', '_get_or_create_analysis_spec'):
+        try:
+            fn = getattr(analysis, alt, None)
+            if callable(fn) and fn():
+                return True
+        except Exception:
+            pass
+
+    # 🔴 NO tocar ResultsRange aquí
+    try:
+        analysis.reindexObject()
+    except Exception:
+        pass
+
+    if _get_analysis_spec(analysis):
+        return True
+
+    try:
+        if _force_create_analysis_spec_legacy(analysis):
+            return True
+    except Exception:
+        pass
+
+    return False
+
 def _has_dx_support(analysis):
     """True si podemos enlazar una DynamicAnalysisSpec de forma nativa:
     - Setters DX directos en Analysis, o
-    - vía AnalysisSpec hijo con setters DX.
+    - vía AnalysisSpec hijo con setters DX (créalo si falta).
     """
     try:
         # 1) Setters DX directos en Analysis
         if (callable(getattr(analysis, "setDynamicAnalysisSpec", None)) or
                 callable(getattr(analysis, "setDynamicAnalysisSpecUID", None))):
             return True
-        # 2) Vía AnalysisSpec hijo
+        # 2) Vía AnalysisSpec hijo (intenta crearlo si no existe)
+        if not _get_analysis_spec(analysis):
+            _ensure_analysis_spec_initialized(analysis)
         aspec = _get_analysis_spec(analysis)
         if aspec and (callable(getattr(aspec, "setDynamicAnalysisSpec", None)) or
                       callable(getattr(aspec, "setDynamicAnalysisSpecUID", None))):
@@ -170,45 +287,11 @@ def _log_capabilities(analysis, aspec):
         }
         logger.info("[AutoSpec][caps] %s svc=%s caps=%r", a_kw, svc_uid, caps)
     except Exception as e:
-        logger.warn("[AutoSpec][caps] fallo al loggear capacidades: %r", e)
+        logger.warning("[AutoSpec][caps] fallo al loggear capacidades: %r", e)
 
 # -------------------------------------------------------------------
 # ESTADO ACTUAL / ASPEC
 # -------------------------------------------------------------------
-
-def _get_analysis_spec(analysis):
-    get_aspec = getattr(analysis, 'getAnalysisSpec', None)
-    if callable(get_aspec):
-        for args, kwargs in (((), {'create': True}), ((True,), {}), ((), {})):
-            try:
-                aspec = get_aspec(*args, **kwargs)
-                if aspec:
-                    return aspec
-            except TypeError:
-                pass
-            except Exception:
-                pass
-
-    for alt in ('getOrCreateAnalysisSpec', 'ensureAnalysisSpec', '_get_or_create_analysis_spec'):
-        try:
-            fn = getattr(analysis, alt, None)
-            if callable(fn):
-                aspec = fn()
-                if aspec:
-                    return aspec
-        except Exception:
-            pass
-
-    try:
-        schema = getattr(analysis, 'Schema', lambda: None)()
-        if schema and 'AnalysisSpec' in schema:
-            aspec = schema['AnalysisSpec'].get(analysis)
-            if aspec:
-                return aspec
-    except Exception:
-        pass
-
-    return None
 
 def _current_spec_state(analysis):
     aspec = _get_analysis_spec(analysis)
@@ -246,96 +329,11 @@ def _user_already_selected(analysis):
     return bool(obj)
 
 # -------------------------------------------------------------------
-# INICIALIZACIÓN DE ASPEC
-# -------------------------------------------------------------------
-
-def _force_create_analysis_spec_legacy(analysis):
-    try:
-        if _get_analysis_spec(analysis):
-            return True
-
-        try:
-            from bika.lims import api as bika_api
-            aspec = bika_api.create(container=analysis, type_name="AnalysisSpec", id="analysisspec")
-            if aspec:
-                try:
-                    analysis.reindexObject()
-                except Exception:
-                    pass
-                return _get_analysis_spec(analysis) is not None
-        except Exception:
-            pass
-
-        try:
-            if hasattr(analysis, "invokeFactory"):
-                new_id = None
-                try:
-                    new_id = analysis.invokeFactory("AnalysisSpec", id="analysisspec")
-                except Exception:
-                    new_id = analysis.invokeFactory("AnalysisSpec")
-                if new_id or True:
-                    try:
-                        analysis.reindexObject()
-                    except Exception:
-                        pass
-                    return _get_analysis_spec(analysis) is not None
-        except Exception:
-            pass
-
-    except Exception:
-        pass
-    return False
-
-def _ensure_analysis_spec_initialized(analysis):
-    if _get_analysis_spec(analysis):
-        return True
-
-    try:
-        get_aspec = getattr(analysis, 'getAnalysisSpec', None)
-        if callable(get_aspec):
-            for args, kwargs in (((), {'create': True}), ((True,), {})):
-                try:
-                    aspec = get_aspec(*args, **kwargs)
-                    if aspec:
-                        return True
-                except TypeError:
-                    pass
-                except Exception:
-                    pass
-    except Exception:
-        pass
-
-    for alt in ('getOrCreateAnalysisSpec', 'ensureAnalysisSpec', '_get_or_create_analysis_spec'):
-        try:
-            fn = getattr(analysis, alt, None)
-            if callable(fn) and fn():
-                return True
-        except Exception:
-            pass
-
-    # 🔴 NO tocar ResultsRange aquí (evita inyectar RequestContainer en adapters)
-    try:
-        analysis.reindexObject()
-    except Exception:
-        pass
-
-    if _get_analysis_spec(analysis):
-        return True
-
-    try:
-        if _force_create_analysis_spec_legacy(analysis):
-            return True
-    except Exception:
-        pass
-
-    return False
-
-# -------------------------------------------------------------------
 # SELECTOR DE SPEC (prioriza DX)
 # -------------------------------------------------------------------
 
 def _prefer_dx_spec(portal, analysis, ar):
-    # ⚠️ Solo preferir DX si hay soporte; si no, forzar fallback a AT
+    # Intentar DX solo si hay (o podemos tener) soporte DX
     if not _has_dx_support(analysis):
         logger.info("[AutoSpec] %s: sin soporte DX; se omitirá DX y se evaluará AT",
                     getattr(analysis, 'Title', lambda: '?')())
@@ -349,8 +347,9 @@ def _prefer_dx_spec(portal, analysis, ar):
     if not dx_folder:
         return None
 
+    # Solo tipos DX en carpeta DX
     dx_specs = [o for o in dx_folder.objectValues()
-                if getattr(o, "portal_type", "") in PORTAL_TYPES_SPECS]
+                if getattr(o, "portal_type", "") in ("DynamicAnalysisSpec", "dynamic_analysisspec")]
     if not dx_specs:
         return None
     if len(dx_specs) == 1:
@@ -506,12 +505,15 @@ def _apply_spec(analysis, spec):
                             except Exception:
                                 pass
 
-            # Evitar puente setSpecification*(DX) que puede inyectar valores erróneos
-            logger.warn("[AutoSpec] %s: NO se pudo aplicar DX (sin setters DX ni AnalysisSpec). Skip.",
-                        getattr(analysis, 'Title', lambda: '?')())
+            # Evitar puente setSpecification*(DX)
+            logger.warning("[AutoSpec] %s: NO se pudo aplicar DX (sin setters DX ni AnalysisSpec). Skip.",
+                           getattr(analysis, 'Title', lambda: '?')())
             return False
 
         # --- AT clásico ---
+        # Asegura que exista AnalysisSpec antes de intentar vía hijo
+        _ensure_analysis_spec_initialized(analysis)
+
         set_ok = False
         for owner_name, owner in (("Analysis", analysis), ("AnalysisSpec", _get_analysis_spec(analysis))):
             if not owner:
@@ -536,8 +538,8 @@ def _apply_spec(analysis, spec):
                 break
 
         if not set_ok:
-            logger.warn("[AutoSpec] %s: No se pudo aplicar AT (sin setters compatibles).",
-                        getattr(analysis, 'Title', lambda: '?')())
+            logger.warning("[AutoSpec] %s: No se pudo aplicar AT (sin setters compatibles).",
+                           getattr(analysis, 'Title', lambda: '?')())
             return False
 
         try:
@@ -548,8 +550,8 @@ def _apply_spec(analysis, spec):
         return True
 
     except Exception as e:
-        logger.warn("[AutoSpec] No se pudo asignar Spec a %s: %r",
-                    getattr(analysis, 'getId', lambda: '?')(), e)
+        logger.warning("[AutoSpec] No se pudo asignar Spec a %s: %r",
+                       getattr(analysis, 'getId', lambda: '?')(), e)
         return False
 
 # -------------------------------------------------------------------
