@@ -1,14 +1,6 @@
-<registry xmlns:i18n="http://xml.zope.org/namespaces/i18n"
+<registry xmlns:i18n="http://xml.zope.org/namespaces/i18n" 
           i18n:domain="senaite.patient">
-
-  <!-- Tus ajustes del panel de control de patient (se mantiene) -->
-  <records
-      interface="senaite.patient.browser.controlpanel.IPatientControlPanel"
-      prefix="senaite.patient" />
-
-  <!-- 🔑 Importa los records esperados por SENAITE Core (incluye sampleview_collapse_ast_analysis_table) -->
-  <records
-      interface="senaite.core.registry.schema.ISampleViewRegistry"
-      prefix="senaite.core" />
-
+          
+  <records interface="senaite.patient.browser.controlpanel.IPatientControlPanel" 
+           prefix="senaite.patient"/>
 </registry>
