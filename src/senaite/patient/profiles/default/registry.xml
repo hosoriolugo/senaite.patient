@@ -1,21 +1,19 @@
 <registry xmlns:i18n="http://xml.zope.org/namespaces/i18n"
           i18n:domain="senaite.patient">
 
-  <!-- Lo que ya tenías -->
+  <!-- Tu panel de control -->
   <records interface="senaite.patient.browser.controlpanel.IPatientControlPanel"
            prefix="senaite.patient" />
 
-  <!-- Clave bajo el esquema correcto + con <field/> definido -->
-  <records interface="senaite.core.registry.schema.ISampleViewRegistry">
-    <record name="sampleview_collapse_ast_analysis_table">
-      <field type="plone.registry.field.Bool">
-        <title i18n:translate="">Collapse AST analysis table</title>
-        <description i18n:translate="">
-          Collapse AST analysis table in sample view
-        </description>
-      </field>
-      <value>False</value>
-    </record>
-  </records>
+  <!-- Clave AST, con nombre completo -->
+  <record name="senaite.core.registry.schema.ISampleViewRegistry.sampleview_collapse_ast_analysis_table">
+    <field type="plone.registry.field.Bool">
+      <title i18n:translate="">Collapse AST analysis table</title>
+      <description i18n:translate="">
+        Collapse AST analysis table in sample view
+      </description>
+    </field>
+    <value>False</value>
+  </record>
 
 </registry>
