@@ -22,6 +22,7 @@
       handler=".analysisrequest.on_object_created"
   />
 
+  <!-- Control panel settings changed (SE MANTIENE) -->
   <subscriber
       for="senaite.patient.browser.controlpanel.IPatientControlPanel
            zope.lifecycleevent.interfaces.IObjectModifiedEvent"
@@ -29,24 +30,24 @@
   />
 
   <!-- =========================================================
-       ADICIÓN: Auto-aplicar Specifications (llenar “± Especificación”)
+       Auto-aplicar Specifications (llenar “± Especificación”)
        ========================================================= -->
 
-  <!-- Al CREAR un AnalysisRequest -->
+  <!-- Al CREAR un AnalysisRequest (SE MANTIENE) -->
   <subscriber
       for="bika.lims.interfaces.IAnalysisRequest
            zope.lifecycleevent.interfaces.IObjectAddedEvent"
       handler=".specs.apply_specs_for_ar"
   />
 
-  <!-- Al AÑADIR un Analysis dentro de un AR -->
+  <!-- Al AÑADIR un Analysis dentro de un AR (SE MANTIENE) -->
   <subscriber
       for="bika.lims.interfaces.IAnalysis
            zope.lifecycleevent.interfaces.IObjectAddedEvent"
       handler=".specs.apply_spec_for_analysis"
   />
 
-  <!-- ✅ Reintentar cuando el Analysis ya tiene servicio/keyword -->
+  <!-- Reintento cuando el Analysis cambia (servicio/keyword ya definido) (SE MANTIENE) -->
   <subscriber
       for="bika.lims.interfaces.IAnalysis
            zope.lifecycleevent.interfaces.IObjectModifiedEvent"
@@ -54,21 +55,21 @@
   />
 
   <!-- =========================================================
-       FALLBACKS UNIVERSALES (no rompen nada y aseguran cobertura)
+       FALLBACKS UNIVERSALES (desactivados para evitar duplicados)
        ========================================================= -->
 
-  <!-- Fallback universal: Added (filtra por portal_type en specs.py) -->
+  <!--
   <subscriber
       for="zope.interface.Interface
            zope.lifecycleevent.interfaces.IObjectAddedEvent"
       handler=".specs.on_object_added"
   />
 
-  <!-- Fallback universal: Modified (filtra por portal_type en specs.py) -->
   <subscriber
       for="zope.interface.Interface
            zope.lifecycleevent.interfaces.IObjectModifiedEvent"
       handler=".specs.on_object_modified"
   />
+  -->
 
 </configure>
