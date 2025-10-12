@@ -5,9 +5,15 @@
   <records interface="senaite.patient.browser.controlpanel.IPatientControlPanel"
            prefix="senaite.patient" />
 
-  <!-- Clave declarada bajo el esquema correcto del core -->
-  <records interface="senaite.core.registry.schema.ISampleViewRegistry">
-    <value key="sampleview_collapse_ast_analysis_table">False</value>
-  </records>
+  <!-- CREA la clave que pide senaite.ast -->
+  <record name="sampleview_collapse_ast_analysis_table">
+    <field type="plone.registry.field.Bool">
+      <title i18n:translate="">Collapse AST analysis table</title>
+      <description i18n:translate="">
+        Collapse AST analysis table in sample view
+      </description>
+    </field>
+    <value>False</value>
+  </record>
 
 </registry>
