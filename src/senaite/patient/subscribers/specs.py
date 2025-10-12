@@ -89,8 +89,8 @@ def _has_dx_support(analysis):
     """
     try:
         # 1) Setters DX directos en Analysis
-        if callable(getattr(analysis, "setDynamicAnalysisSpec", None)) \
-           or callable(getattr(analysis, "setDynamicAnalysisSpecUID", None)):
+        if (callable(getattr(analysis, "setDynamicAnalysisSpec", None)) or
+                callable(getattr(analysis, "setDynamicAnalysisSpecUID", None))):
             return True
         # 2) Vía AnalysisSpec hijo
         aspec = _get_analysis_spec(analysis)
@@ -161,11 +161,11 @@ def _log_capabilities(analysis, aspec):
             "aspec": {
                 "exists": bool(aspec),
                 "setSpecification": bool(aspec and callable(getattr(aspec, "setSpecification", None))),
-                "setSpecificationUID": bool(aspec and callable(getattr(aspec, "setSpecificationUID", None)))),
-                "setDynamicAnalysisSpec": bool(aspec and callable(getattr(aspec, "setDynamicAnalysisSpec", None)))),
-                "setDynamicAnalysisSpecUID": bool(aspec and callable(getattr(aspec, "setDynamicAnalysisSpecUID", None)))),
-                "getSpecification": bool(aspec and callable(getattr(aspec, "getSpecification", None)))),
-                "getDynamicAnalysisSpec": bool(aspec and callable(getattr(aspec, "getDynamicAnalysisSpec", None)))),
+                "setSpecificationUID": bool(aspec and callable(getattr(aspec, "setSpecificationUID", None))),
+                "setDynamicAnalysisSpec": bool(aspec and callable(getattr(aspec, "setDynamicAnalysisSpec", None))),
+                "setDynamicAnalysisSpecUID": bool(aspec and callable(getattr(aspec, "setDynamicAnalysisSpecUID", None))),
+                "getSpecification": bool(aspec and callable(getattr(aspec, "getSpecification", None))),
+                "getDynamicAnalysisSpec": bool(aspec and callable(getattr(aspec, "getDynamicAnalysisSpec", None))),
             }
         }
         logger.info("[AutoSpec][caps] %s svc=%s caps=%r", a_kw, svc_uid, caps)
