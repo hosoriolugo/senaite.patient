@@ -2,8 +2,16 @@
     xmlns:i18n="http://xml.zope.org/namespaces/i18n"
     i18n:domain="senaite.patient">
 
+  <!-- Tu panel de control (se mantiene tal cual) -->
   <records
       interface="senaite.patient.browser.controlpanel.IPatientControlPanel"
       prefix="senaite.patient" />
 
+  <!-- Shim: asegura que exista la clave de senaite.core que está dando error -->
+  <record name="senaite.core.sampleview_collapse_ast_analysis_table">
+    <field type="zope.schema.Bool" />
+    <value>False</value>
+  </record>
+
 </registry>
+
