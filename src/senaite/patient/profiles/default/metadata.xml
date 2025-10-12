@@ -1,8 +1,11 @@
 <?xml version="1.0"?>
 <metadata>
-  <version>1504</version>
+  <version>1503</version>
   <dependencies>
+    <!-- 🔑 ORDEN CRÍTICO: Patient debe instalarse DESPUÉS del core -->
+    <dependency>profile-senaite.core:default</dependency>
     <dependency>profile-senaite.lims:default</dependency>
+    <dependency>profile-bika.lims:default</dependency>
   </dependencies>
 </metadata>
 
