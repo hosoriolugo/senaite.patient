@@ -1,15 +1,14 @@
 <registry xmlns:i18n="http://xml.zope.org/namespaces/i18n"
           i18n:domain="senaite.patient">
 
-  <!-- Lo tuyo: ajustes del panel de control de patient -->
+  <!-- Tus ajustes del panel de control de patient (se mantiene) -->
   <records
       interface="senaite.patient.browser.controlpanel.IPatientControlPanel"
       prefix="senaite.patient" />
 
-  <!-- Shim para silenciar el missing registry de core -->
-  <record name="senaite.core.sampleview_collapse_ast_analysis_table">
-    <field type="plone.registry.field.Bool" />
-    <value>False</value>
-  </record>
+  <!-- 🔑 Importa los records esperados por SENAITE Core (incluye sampleview_collapse_ast_analysis_table) -->
+  <records
+      interface="senaite.core.registry.schema.ISampleViewRegistry"
+      prefix="senaite.core" />
 
 </registry>
