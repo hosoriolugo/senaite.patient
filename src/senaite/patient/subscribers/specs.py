@@ -82,6 +82,25 @@ def _obj_uid(obj, attr_name, default=None):
         pass
     return default
 
+def _has_dx_support(analysis):
+    """True si podemos enlazar una DynamicAnalysisSpec de forma nativa:
+    - Setters DX directos en Analysis, o
+    - vía AnalysisSpec hijo con setters DX.
+    """
+    try:
+        # 1) Setters DX directos en Analysis
+        if callable(getattr(analysis, "setDynamicAnalysisSpec", None)) \
+           or callable(getattr(analysis, "setDynamicAnalysisSpecUID", None)):
+            return True
+        # 2) Vía AnalysisSpec hijo
+        aspec = _get_analysis_spec(analysis)
+        if aspec and (callable(getattr(aspec, "setDynamicAnalysisSpec", None)) or
+                      callable(getattr(aspec, "setDynamicAnalysisSpecUID", None))):
+            return True
+    except Exception:
+        pass
+    return False
+
 def _spec_matches(spec_obj, service_uid, client_uid, sampletype_uid, method_uid):
     try:
         s_uid = (_obj_uid(spec_obj, "getServiceUID")
@@ -142,11 +161,11 @@ def _log_capabilities(analysis, aspec):
             "aspec": {
                 "exists": bool(aspec),
                 "setSpecification": bool(aspec and callable(getattr(aspec, "setSpecification", None))),
-                "setSpecificationUID": bool(aspec and callable(getattr(aspec, "setSpecificationUID", None))),
-                "setDynamicAnalysisSpec": bool(aspec and callable(getattr(aspec, "setDynamicAnalysisSpec", None))),
-                "setDynamicAnalysisSpecUID": bool(aspec and callable(getattr(aspec, "setDynamicAnalysisSpecUID", None))),
-                "getSpecification": bool(aspec and callable(getattr(aspec, "getSpecification", None))),
-                "getDynamicAnalysisSpec": bool(aspec and callable(getattr(aspec, "getDynamicAnalysisSpec", None))),
+                "setSpecificationUID": bool(aspec and callable(getattr(aspec, "setSpecificationUID", None)))),
+                "setDynamicAnalysisSpec": bool(aspec and callable(getattr(aspec, "setDynamicAnalysisSpec", None)))),
+                "setDynamicAnalysisSpecUID": bool(aspec and callable(getattr(aspec, "setDynamicAnalysisSpecUID", None)))),
+                "getSpecification": bool(aspec and callable(getattr(aspec, "getSpecification", None)))),
+                "getDynamicAnalysisSpec": bool(aspec and callable(getattr(aspec, "getDynamicAnalysisSpec", None)))),
             }
         }
         logger.info("[AutoSpec][caps] %s svc=%s caps=%r", a_kw, svc_uid, caps)
@@ -316,6 +335,12 @@ def _ensure_analysis_spec_initialized(analysis):
 # -------------------------------------------------------------------
 
 def _prefer_dx_spec(portal, analysis, ar):
+    # ⚠️ Solo preferir DX si hay soporte; si no, forzar fallback a AT
+    if not _has_dx_support(analysis):
+        logger.info("[AutoSpec] %s: sin soporte DX; se omitirá DX y se evaluará AT",
+                    getattr(analysis, 'Title', lambda: '?')())
+        return None
+
     setup = getattr(portal, "setup", None)
     if not setup:
         return None
@@ -481,8 +506,7 @@ def _apply_spec(analysis, spec):
                             except Exception:
                                 pass
 
-            # Si llegamos aquí, evitamos el puente setSpecification*(DX) para no
-            # inyectar claves 'specification' erróneas (RequestContainer) en adapters.
+            # Evitar puente setSpecification*(DX) que puede inyectar valores erróneos
             logger.warn("[AutoSpec] %s: NO se pudo aplicar DX (sin setters DX ni AnalysisSpec). Skip.",
                         getattr(analysis, 'Title', lambda: '?')())
             return False
