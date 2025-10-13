@@ -10,14 +10,23 @@ try:
 except NameError:  # Py3
     basestring = str
 
+# Para _safe_unicode robusto en Py2 con acentos
+try:
+    unicode
+except NameError:  # Py3
+    unicode = str
+
 try:
     from Products.CMFPlone.utils import safe_unicode as _safe_unicode
 except Exception:
     def _safe_unicode(x):
         try:
-            return str(x)
+            return x if isinstance(x, unicode) else unicode(x, 'utf-8', 'ignore')
         except Exception:
-            return x
+            try:
+                return unicode(str(x), 'utf-8', 'ignore')
+            except Exception:
+                return u''
 
 # -------------------------------------------------------------------
 # SOPORTE A AT y DX
@@ -62,6 +71,9 @@ PREFERRED_DX_TITLES = (
     u"Química 3 Elementos",
 )
 
+# Saltar DX si no hay setters DX disponibles (recomendado en 2.6 si los caps dicen que no)
+SKIP_DX_IF_UNSUPPORTED = True
+
 # -------------------------------------------------------------------
 # UTILIDADES
 # -------------------------------------------------------------------
@@ -81,11 +93,11 @@ def _title(obj, default=u"?"):
     try:
         t = getattr(obj, "Title", None)
         if callable(t):
-            return t() or default
+            return _safe_unicode(t()) or default
         # algunos objetos exponen 'title' como attr o prop
         val = getattr(obj, "title", None)
         if isinstance(val, basestring):
-            return val or default
+            return _safe_unicode(val) or default
     except Exception:
         pass
     return default
@@ -537,68 +549,105 @@ def _prefer_dx_spec(portal, analysis, ar):
     return best
 
 # -------------------------------------------------------------------
+# BÚSQUEDA DE SPEC (AT por catálogo como el wizard)
+# -------------------------------------------------------------------
+
+def _find_at_spec_catalog(portal, analysis, ar):
+    """Replica la búsqueda del widget:
+       catalog = senaite_catalog_setup
+       portal_type = 'AnalysisSpec'
+       filtros: getClientUID=[client,''], sampletype_uid=[stype,'']
+    """
+    try:
+        cat = getToolByName(portal, 'senaite_catalog_setup')
+    except Exception:
+        return None
+
+    try:
+        client_uid = None
+        try:
+            client_uid = ar.aq_parent.UID() if hasattr(ar.aq_parent, 'UID') else None
+        except Exception:
+            pass
+
+        sampletype_uid = None
+        try:
+            sampletype_uid = getattr(analysis, 'getSampleTypeUID', lambda: None)()
+        except Exception:
+            pass
+
+        query = {
+            'portal_type': 'AnalysisSpec',
+            'is_active': True,
+            'sort_on': 'sortable_title',
+            'sort_order': 'ascending',
+            'getClientUID': [client_uid or '', ''],
+            'sampletype_uid': [sampletype_uid or '', ''],
+        }
+        brains = cat(query)
+
+        # Restringir por servicio si la spec lo define
+        service_uid = getattr(analysis, 'getServiceUID', lambda: None)()
+        method_uid  = getattr(analysis, 'getMethodUID', lambda: None)()
+
+        for b in brains:
+            try:
+                obj = b.getObject()
+            except Exception:
+                continue
+            if _spec_matches(obj, service_uid, client_uid, sampletype_uid, method_uid):
+                logger.info(u"[AutoSpec] AT(candidate) por catálogo: %s", _title(obj))
+                return obj
+
+        # Si ninguna exige service y no hay match estricto, usar la primera como fallback blando
+        if brains:
+            try:
+                obj = brains[0].getObject()
+                logger.info(u"[AutoSpec] AT fallback catálogo (primera): %s", _title(obj))
+                return obj
+            except Exception:
+                pass
+    except Exception as e:
+        logger.warning(u"[AutoSpec] Error en _find_at_spec_catalog: %r", e)
+    return None
+
+# -------------------------------------------------------------------
 # BÚSQUEDA DE SPEC
 # -------------------------------------------------------------------
 
 def _find_matching_spec(portal, analysis, ar):
-    """Devuelve una spec (prioriza DX). No abandona si falta ServiceUID."""
-    # 1) Intentar DX primero (independiente del ServiceUID)
-    spec = _prefer_dx_spec(portal, analysis, ar)
+    """Devuelve una spec, priorizando DX solo si hay soporte; si no, busca AT por catálogo."""
+    # 0) ¿Hay soporte DX real?
+    allow_dx = _has_dx_support(analysis)
+    if not allow_dx and SKIP_DX_IF_UNSUPPORTED:
+        logger.info(u"[AutoSpec] DX omitida: sin soporte de setters DX en este análisis")
+
+    # 1) Intentar DX primero SOLO si hay soporte
+    if allow_dx:
+        spec = _prefer_dx_spec(portal, analysis, ar)
+        if spec:
+            logger.info(u"[AutoSpec] DX candidate: %s", _title(spec))
+            return spec
+
+    # 2) Buscar AT por catálogo (lo que hace el widget manual)
+    spec = _find_at_spec_catalog(portal, analysis, ar)
     if spec:
-        logger.info("[AutoSpec] DX candidate: %s", _title(spec))
         return spec
-
-    # 2) AT por carpeta de setup clásico (match estricto cuando la spec define service)
-    try:
-        service_uid = getattr(analysis, "getServiceUID", lambda: None)()
-    except Exception:
-        service_uid = None
-
-    bsetup = getattr(portal, "bika_setup", None)
-    if bsetup:
-        for name in ("specifications", "bika_specifications", "Specifications"):
-            at_folder = getattr(bsetup, name, None)
-            if not at_folder:
-                continue
-            at_specs = [obj for obj in at_folder.objectValues()
-                        if getattr(obj, "portal_type", "") == "Specification"]
-            if at_specs:
-                client_uid = None
-                sampletype_uid = None
-                method_uid = None
-                try:
-                    client_uid = ar.aq_parent.UID() if hasattr(ar.aq_parent, 'UID') else None
-                    sampletype_uid = analysis.getSampleTypeUID()
-                    method_uid = analysis.getMethodUID()
-                except Exception:
-                    pass
-
-                # Buscar match estricto (si la spec define service, se respeta)
-                for cand in at_specs:
-                    if _spec_matches(cand, service_uid, client_uid, sampletype_uid, method_uid):
-                        logger.info("[AutoSpec] AT candidate: %s", _title(cand))
-                        return cand
-
-                if not AT_FALLBACK_FIRST:
-                    logger.info("[AutoSpec] AT: no se encontró Specification que coincida con el servicio")
-                else:
-                    logger.info("[AutoSpec] AT fallback (first): %s", _title(at_specs[0]))
-                    return at_specs[0]
 
     # 3) Traversal (opcional) — por defecto off para prod
     if not ALLOW_TRAVERSAL_FALLBACK:
         # Si a esta altura no hay spec y además no hay ServiceUID, explicamos por qué:
         if not getattr(analysis, "getServiceUID", lambda: None)():
-            logger.info("[AutoSpec] %s: sin ServiceUID y sin DX apta; se reintentará en Modified",
+            logger.info(u"[AutoSpec] %s: sin ServiceUID y sin DX apta; se reintentará en Modified",
                         getattr(analysis, 'getId', lambda: '?')())
         else:
-            logger.info("[AutoSpec] Sin Specification encontrada")
+            logger.info(u"[AutoSpec] Sin Specification encontrada en catálogo")
         return None
 
     # --- Traversal original (respetado) ---
-    allow_dx = _has_dx_support(analysis)
+    allow_dx_traversal = _has_dx_support(analysis)
 
-    if not allow_dx or TRAVERSAL_ONLY_AT:
+    if not allow_dx_traversal or TRAVERSAL_ONLY_AT:
         for cand in _iter_specs_by_traversal(portal):
             pt = getattr(cand, "portal_type", "")
             if pt != "Specification":  # solo AT
@@ -749,20 +798,22 @@ def _apply_spec(analysis, spec):
         _ensure_analysis_spec_initialized(analysis)
 
         set_ok = False
+        # Preferimos aplicar DIRECTO en Analysis (como hace el wizard)
         for owner_name, owner in (("Analysis", analysis), ("AnalysisSpec", _get_analysis_spec(analysis))):
             if not owner:
                 continue
+            # ⚠️ Orden nuevo: primero objeto, luego UID
             for setter_name, value in (
+                ("setSpecification", spec),     # ← primero objeto
                 ("setSpecificationUID", spec_uid),
                 ("setSpecification", spec_uid),
-                ("setSpecification", spec),
             ):
                 setter = getattr(owner, setter_name, None)
                 if callable(setter):
                     try:
                         setter(value)
                         set_ok = True
-                        logger.info("[AutoSpec] %s: AT aplicada en %s vía %s → %s",
+                        logger.info(u"[AutoSpec] %s: AT aplicada en %s vía %s → %s",
                                     _title(analysis), owner_name, setter_name, _title(spec))
                         break
                     except Exception:
@@ -816,14 +867,25 @@ def apply_specs_for_ar(ar, event):
 
         # 1) Si el usuario ya seleccionó algo, no tocamos
         if _user_already_selected(an):
-            logger.info("[AutoSpec] %s: ya tenía selección; skip", _title(an))
+            logger.info(u"[AutoSpec] %s: ya tenía selección; skip", _title(an))
             continue
 
         # 2) Intentar asignación automática
         spec = _find_matching_spec(portal, an, ar)
-        if spec:
-            ok = _apply_spec(an, spec)
-            logger.info("[AutoSpec] %s -> %s [%s]", _title(spec), _title(an), "OK" if ok else "FAIL")
+        if not spec:
+            continue
+
+        ok = _apply_spec(an, spec)
+
+        # 3) Si DX falló, fallback a AT por catálogo
+        if not ok and (getattr(spec, 'portal_type', '') in ('DynamicAnalysisSpec', 'dynamic_analysisspec')):
+            alt = _find_at_spec_catalog(portal, an, ar)
+            if alt:
+                ok = _apply_spec(an, alt)
+                logger.info(u"[AutoSpec] Fallback a AT por catálogo: %s -> %s [%s]",
+                            _title(alt), _title(an), "OK" if ok else "FAIL")
+
+        logger.info(u"[AutoSpec] %s -> %s [%s]", _title(spec), _title(an), "OK" if ok else "FAIL")
 
 def apply_spec_for_analysis(analysis, event):
     if not (IObjectAddedEvent.providedBy(event) or IObjectModifiedEvent.providedBy(event)):
@@ -834,7 +896,7 @@ def apply_spec_for_analysis(analysis, event):
 
     # 1) Respetar selección/ResultsRange manual previa
     if _user_already_selected(analysis):
-        logger.info("[AutoSpec] %s: ya tenía selección; skip", _title(analysis))
+        logger.info(u"[AutoSpec] %s: ya tenía selección; skip", _title(analysis))
         return
 
     # 2) Resolver AR contenedor
@@ -849,9 +911,20 @@ def apply_spec_for_analysis(analysis, event):
     # 3) Buscar y aplicar
     portal = api.get_portal()
     spec = _find_matching_spec(portal, analysis, ar)
-    if spec:
-        ok = _apply_spec(analysis, spec)
-        logger.info("[AutoSpec] %s -> %s [%s]", _title(spec), _title(analysis), "OK" if ok else "FAIL")
+    if not spec:
+        return
+
+    ok = _apply_spec(analysis, spec)
+
+    # 4) Si DX falló, fallback a AT por catálogo
+    if not ok and (getattr(spec, 'portal_type', '') in ('DynamicAnalysisSpec', 'dynamic_analysisspec')):
+        alt = _find_at_spec_catalog(portal, analysis, ar)
+        if alt:
+            ok = _apply_spec(analysis, alt)
+            logger.info(u"[AutoSpec] Fallback a AT por catálogo: %s -> %s [%s]",
+                        _title(alt), _title(analysis), "OK" if ok else "FAIL")
+
+    logger.info(u"[AutoSpec] %s -> %s [%s]", _title(spec), _title(analysis), "OK" if ok else "FAIL")
 
 def on_object_added(obj, event):
     if not IObjectAddedEvent.providedBy(event):
