@@ -525,7 +525,13 @@ def _find_matching_spec(portal, analysis, ar):
                 logger.info("[AutoSpec] AT fallback (first): %s", getattr(at_specs[0], 'Title', lambda: at_specs[0])())
                 return at_specs[0]
 
+    # --- AJUSTE CLAVE: Fallback por recorrido filtrando por soporte DX ---
+    only_at = not _has_dx_support(analysis)
     for cand in _iter_specs_by_traversal(portal):
+        pt = getattr(cand, 'portal_type', '')
+        if only_at and pt != "Specification":
+            # Sin soporte DX → saltamos DynamicAnalysisSpec
+            continue
         logger.info("[AutoSpec] Traversal candidate: %s", getattr(cand, 'Title', lambda: cand)())
         return cand
 
