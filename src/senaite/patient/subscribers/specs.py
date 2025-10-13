@@ -77,6 +77,19 @@ def _uid(obj):
     except Exception:
         return repr(obj)
 
+def _title(obj, default=u"?"):
+    try:
+        t = getattr(obj, "Title", None)
+        if callable(t):
+            return t() or default
+        # algunos objetos exponen 'title' como attr o prop
+        val = getattr(obj, "title", None)
+        if isinstance(val, basestring):
+            return val or default
+    except Exception:
+        pass
+    return default
+
 def _obj_uid(obj, attr_name, default=None):
     # 1) getXxxUID()
     try:
@@ -446,12 +459,7 @@ def _dx_supports(dx, keyword, client_uid=None, sampletype_uid=None, method_uid=N
 # -------------------------------------------------------------------
 
 def _prefer_dx_spec(portal, analysis, ar):
-    # Intentar DX solo si hay (o podemos tener) soporte DX
-    if not _has_dx_support(analysis):
-        logger.info("[AutoSpec] %s: sin soporte DX; se omitirá DX y se evaluará AT",
-                    getattr(analysis, 'Title', lambda: '?')())
-        return None
-
+    """No exige soporte DX por adelantado; selecciona candidata y _apply_spec la enlaza."""
     setup = getattr(portal, "setup", None)
     if not setup:
         return None
@@ -491,9 +499,9 @@ def _prefer_dx_spec(portal, analysis, ar):
     except Exception:
         method_uid = None
 
-    # Scoring:
+    # Scoring DX
     # +100 si la DX es específica del cliente y coincide
-    # +50 si confirmamos que contiene filas para el keyword (y filtros)
+    # +50 si contiene filas para keyword (y filtros)
     # +10 si no podemos inspeccionar filas (posible candidata)
     # +5  si el título preferido coincide
     wanted_titles = tuple(t.strip().lower() for t in PREFERRED_DX_TITLES)
@@ -525,7 +533,7 @@ def _prefer_dx_spec(portal, analysis, ar):
     scored.sort(key=lambda x: x[0], reverse=True)
     best = scored[0][1]
     if best:
-        logger.info("[AutoSpec] DX candidate (scored): %s", getattr(best, 'Title', lambda: best)())
+        logger.info("[AutoSpec] DX candidate (scored): %s", _title(best))
     return best
 
 # -------------------------------------------------------------------
@@ -533,15 +541,14 @@ def _prefer_dx_spec(portal, analysis, ar):
 # -------------------------------------------------------------------
 
 def _find_matching_spec(portal, analysis, ar):
-    """Devuelve una spec (prioriza DX). Ya no abandona si falta ServiceUID:
-    intenta DX por keyword y sólo entonces registra el reintento."""
+    """Devuelve una spec (prioriza DX). No abandona si falta ServiceUID."""
     # 1) Intentar DX primero (independiente del ServiceUID)
     spec = _prefer_dx_spec(portal, analysis, ar)
     if spec:
-        logger.info("[AutoSpec] DX candidate: %s", getattr(spec, 'Title', lambda: spec)())
+        logger.info("[AutoSpec] DX candidate: %s", _title(spec))
         return spec
 
-    # 2) AT por carpeta de setup clásico (aquí sí conviene tener ServiceUID para match estricto)
+    # 2) AT por carpeta de setup clásico (match estricto cuando la spec define service)
     try:
         service_uid = getattr(analysis, "getServiceUID", lambda: None)()
     except Exception:
@@ -569,17 +576,16 @@ def _find_matching_spec(portal, analysis, ar):
                 # Buscar match estricto (si la spec define service, se respeta)
                 for cand in at_specs:
                     if _spec_matches(cand, service_uid, client_uid, sampletype_uid, method_uid):
-                        logger.info("[AutoSpec] AT candidate: %s", getattr(cand, 'Title', lambda: cand)())
+                        logger.info("[AutoSpec] AT candidate: %s", _title(cand))
                         return cand
 
                 if not AT_FALLBACK_FIRST:
                     logger.info("[AutoSpec] AT: no se encontró Specification que coincida con el servicio")
                 else:
-                    logger.info("[AutoSpec] AT fallback (first): %s",
-                                getattr(at_specs[0], 'Title', lambda: at_specs[0])())
+                    logger.info("[AutoSpec] AT fallback (first): %s", _title(at_specs[0]))
                     return at_specs[0]
 
-    # 3) Traversal (opcional) — mantenemos tu configuración por defecto desactivada
+    # 3) Traversal (opcional) — por defecto off para prod
     if not ALLOW_TRAVERSAL_FALLBACK:
         # Si a esta altura no hay spec y además no hay ServiceUID, explicamos por qué:
         if not getattr(analysis, "getServiceUID", lambda: None)():
@@ -602,8 +608,7 @@ def _find_matching_spec(portal, analysis, ar):
                              getattr(getattr(ar, "aq_parent", None), "UID", lambda: None)() if hasattr(ar, "aq_parent") else None,
                              getattr(analysis, "getSampleTypeUID", lambda: None)(),
                              getattr(analysis, "getMethodUID", lambda: None)()):
-                logger.info("[AutoSpec] Traversal candidate (AT-only): %s",
-                            getattr(cand, 'Title', lambda: cand)())
+                logger.info("[AutoSpec] Traversal candidate (AT-only): %s", _title(cand))
                 return cand
         logger.info("[AutoSpec] Traversal no encontró AT compatible")
         logger.info("[AutoSpec] Sin Specification encontrada")
@@ -627,9 +632,9 @@ def _find_matching_spec(portal, analysis, ar):
     except Exception:
         kw = ""
 
-    def _parent_uid(ar):
+    def _parent_uid(ar_):
         try:
-            return ar.aq_parent.UID() if hasattr(ar.aq_parent, 'UID') else None
+            return ar_.aq_parent.UID() if hasattr(ar_.aq_parent, 'UID') else None
         except Exception:
             return None
 
@@ -655,8 +660,7 @@ def _find_matching_spec(portal, analysis, ar):
     choose_from = first_pass or second_pass
     if choose_from:
         best = choose_from[0]
-        logger.info("[AutoSpec] Traversal candidate (filtered): %s",
-                    getattr(best, 'Title', lambda: best)())
+        logger.info("[AutoSpec] Traversal candidate (filtered): %s", _title(best))
         return best
 
     logger.info("[AutoSpec] Traversal no encontró candidatos válidos")
@@ -672,9 +676,7 @@ def _apply_spec(analysis, spec):
         existing_kind, existing_obj = _current_spec_state(analysis)
         if existing_obj:
             logger.info("[AutoSpec] %s: ya tiene spec %s (%s); no se sobreescribe",
-                        getattr(analysis, 'Title', lambda: '?')(),
-                        getattr(existing_obj, 'Title', lambda: existing_obj)(),
-                        existing_kind or 'unknown')
+                        _title(analysis), _title(existing_obj), existing_kind or 'unknown')
             return True
 
         pt = getattr(spec, "portal_type", "") or ""
@@ -699,7 +701,7 @@ def _apply_spec(analysis, spec):
                         except Exception:
                             pass
                         logger.info("[AutoSpec] %s: DX aplicada en Analysis vía %s",
-                                    analysis.Title(), setter_name)
+                                    _title(analysis), setter_name)
                         return True
                     except Exception:
                         pass
@@ -715,7 +717,7 @@ def _apply_spec(analysis, spec):
                         curr = get_dx() if callable(get_dx) else None
                         if curr and _uid(curr) == spec_uid:
                             logger.info("[AutoSpec] %s: DX ya enlazada (%s); no-op",
-                                        analysis.Title(), getattr(spec, 'Title', lambda: spec)())
+                                        _title(analysis), _title(spec))
                             return True
                     except Exception:
                         pass
@@ -734,14 +736,13 @@ def _apply_spec(analysis, spec):
                                 except Exception:
                                     pass
                                 logger.info("[AutoSpec] %s: DX aplicada en AnalysisSpec vía %s → %s",
-                                            analysis.Title(), setter_name,
-                                            getattr(spec, 'Title', lambda: spec)())
+                                            _title(analysis), setter_name, _title(spec))
                                 return True
                             except Exception:
                                 pass
 
             logger.warning("[AutoSpec] %s: NO se pudo aplicar DX (sin setters DX ni AnalysisSpec). Skip.",
-                           getattr(analysis, 'Title', lambda: '?')())
+                           _title(analysis))
             return False
 
         # --- AT clásico ---
@@ -762,8 +763,7 @@ def _apply_spec(analysis, spec):
                         setter(value)
                         set_ok = True
                         logger.info("[AutoSpec] %s: AT aplicada en %s vía %s → %s",
-                                    analysis.Title(), owner_name, setter_name,
-                                    getattr(spec, 'Title', lambda: spec)())
+                                    _title(analysis), owner_name, setter_name, _title(spec))
                         break
                     except Exception:
                         pass
@@ -772,7 +772,7 @@ def _apply_spec(analysis, spec):
 
         if not set_ok:
             logger.warning("[AutoSpec] %s: No se pudo aplicar AT (sin setters compatibles).",
-                           getattr(analysis, 'Title', lambda: '?')())
+                           _title(analysis))
             return False
 
         try:
@@ -791,29 +791,53 @@ def _apply_spec(analysis, spec):
 # SUBSCRIBERS
 # -------------------------------------------------------------------
 
+def _ensure_spec_ui(analysis):
+    """Garantiza que exista el hijo AnalysisSpec para que la UI muestre '± Especificaciones'."""
+    try:
+        created = _ensure_analysis_spec_initialized(analysis)
+        if created:
+            logger.info("[AutoSpec] %s: AnalysisSpec presente (UI listo para '± Especificaciones')",
+                        _title(analysis))
+        else:
+            logger.info("[AutoSpec] %s: no se pudo garantizar AnalysisSpec (UI podría no mostrar '±')",
+                        _title(analysis))
+    except Exception as e:
+        logger.warning("[AutoSpec] %s: error asegurando AnalysisSpec para UI: %r",
+                       _title(analysis), e)
+
 def apply_specs_for_ar(ar, event):
     if not IObjectAddedEvent.providedBy(event):
         return
     portal = api.get_portal()
     analyses = getattr(ar, 'getAnalyses', lambda: [])() or []
     for an in analyses:
+        # 0) Asegurar que la UI muestre '± Especificaciones'
+        _ensure_spec_ui(an)
+
+        # 1) Si el usuario ya seleccionó algo, no tocamos
         if _user_already_selected(an):
-            logger.info("[AutoSpec] %s: ya tenía selección; skip", an.Title())
+            logger.info("[AutoSpec] %s: ya tenía selección; skip", _title(an))
             continue
+
+        # 2) Intentar asignación automática
         spec = _find_matching_spec(portal, an, ar)
         if spec:
             ok = _apply_spec(an, spec)
-            logger.info("[AutoSpec] %s -> %s [%s]",
-                        getattr(spec, 'Title', lambda: spec)(),
-                        an.Title(), "OK" if ok else "FAIL")
+            logger.info("[AutoSpec] %s -> %s [%s]", _title(spec), _title(an), "OK" if ok else "FAIL")
 
 def apply_spec_for_analysis(analysis, event):
     if not (IObjectAddedEvent.providedBy(event) or IObjectModifiedEvent.providedBy(event)):
         return
+
+    # 0) Asegurar siempre el hijo para visibilidad de UI
+    _ensure_spec_ui(analysis)
+
+    # 1) Respetar selección/ResultsRange manual previa
     if _user_already_selected(analysis):
-        logger.info("[AutoSpec] %s: ya tenía selección; skip", analysis.Title())
+        logger.info("[AutoSpec] %s: ya tenía selección; skip", _title(analysis))
         return
 
+    # 2) Resolver AR contenedor
     ar = getattr(analysis, 'getAnalysisRequest', lambda: None)()
     if not ar:
         parent = getattr(analysis, 'aq_parent', None)
@@ -822,13 +846,12 @@ def apply_spec_for_analysis(analysis, event):
     if not ar:
         return
 
+    # 3) Buscar y aplicar
     portal = api.get_portal()
     spec = _find_matching_spec(portal, analysis, ar)
     if spec:
         ok = _apply_spec(analysis, spec)
-        logger.info("[AutoSpec] %s -> %s [%s]",
-                    getattr(spec, 'Title', lambda: spec)(),
-                    analysis.Title(), "OK" if ok else "FAIL")
+        logger.info("[AutoSpec] %s -> %s [%s]", _title(spec), _title(analysis), "OK" if ok else "FAIL")
 
 def on_object_added(obj, event):
     if not IObjectAddedEvent.providedBy(event):
