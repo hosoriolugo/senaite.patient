@@ -40,6 +40,29 @@ SPEC_FOLDERS_CANDIDATES = (
 )
 
 # -------------------------------------------------------------------
+# FLAGS DE BÚSQUEDA / FALLBACK (MODO PRODUCCIÓN)
+# -------------------------------------------------------------------
+PROD_MODE = True
+
+# En producción: desactivar traversal por defecto (evita specs “azarosas”).
+ALLOW_TRAVERSAL_FALLBACK = False
+
+# Si alguna vez activas traversal, limita a AT para evitar DX en objetos sin soporte DX.
+TRAVERSAL_ONLY_AT = True
+
+# En producción no tomamos el “primer AT que aparezca” si no hay match por servicio.
+AT_FALLBACK_FIRST = False
+
+# Exigir coincidencia de ServiceUID cuando la spec la trae seteada (recomendado en prod).
+REQUIRE_SERVICE_MATCH = True
+
+# Títulos preferidos (por si habilitas traversal alguna vez)
+PREFERRED_DX_TITLES = (
+    u"Quimica 3 Elementos",
+    u"Química 3 Elementos",
+)
+
+# -------------------------------------------------------------------
 # UTILIDADES
 # -------------------------------------------------------------------
 
@@ -219,24 +242,32 @@ def _has_dx_support(analysis):
     return False
 
 def _spec_matches(spec_obj, service_uid, client_uid, sampletype_uid, method_uid):
+    """Match estricto por ServiceUID (si la spec lo define) y por otros filtros si están definidos."""
     try:
         s_uid = (_obj_uid(spec_obj, "getServiceUID")
                  or _obj_uid(spec_obj, "getService")
                  or getattr(spec_obj, "service_uid", None))
-        if s_uid and service_uid and s_uid != service_uid:
+        if REQUIRE_SERVICE_MATCH and s_uid:
+            if not service_uid or s_uid != service_uid:
+                return False
+        elif s_uid and service_uid and s_uid != service_uid:
             return False
+
         c_uid = (_obj_uid(spec_obj, "getClientUID")
                  or getattr(spec_obj, "client_uid", None))
         if c_uid and client_uid and c_uid != client_uid:
             return False
+
         st_uid = (_obj_uid(spec_obj, "getSampleTypeUID")
                   or getattr(spec_obj, "sampletype_uid", None))
         if st_uid and sampletype_uid and st_uid != sampletype_uid:
             return False
+
         m_uid = (_obj_uid(spec_obj, "getMethodUID")
                  or getattr(spec_obj, "method_uid", None))
         if m_uid and method_uid and m_uid != method_uid:
             return False
+
         return True
     except Exception:
         return False
@@ -365,9 +396,7 @@ def _dx_supports(dx, keyword, client_uid=None, sampletype_uid=None, method_uid=N
         kw = norm(keyword)
         for r in rows:
             k = norm(r.get("Keyword") or r.get("keyword") or r.get("service_keyword"))
-            if not k:
-                continue
-            if k != kw:
+            if not k or k != kw:
                 continue
 
             ok_client = True
@@ -446,8 +475,8 @@ def _prefer_dx_spec(portal, analysis, ar):
     # +100 si la DX es específica del cliente y coincide
     # +50 si confirmamos que contiene filas para el keyword (y filtros)
     # +10 si no podemos inspeccionar filas (posible candidata)
-    # +5  si el título preferido coincide (tu caso)
-    wanted_titles = (u"quimica 3 elementos", u"química 3 elementos")
+    # +5  si el título preferido coincide
+    wanted_titles = tuple(t.strip().lower() for t in PREFERRED_DX_TITLES)
     scored = []
     for obj in dx_specs:
         score = 0
@@ -461,8 +490,6 @@ def _prefer_dx_spec(portal, analysis, ar):
             score += 50
         elif sup is None:
             score += 10
-        else:
-            score += 0
 
         try:
             t = getattr(obj, "Title", lambda: u"")()
@@ -500,6 +527,7 @@ def _find_matching_spec(portal, analysis, ar):
         logger.info("[AutoSpec] DX candidate: %s", getattr(spec, 'Title', lambda: spec)())
         return spec
 
+    # AT por carpeta de setup clásico
     bsetup = getattr(portal, "bika_setup", None)
     if bsetup:
         for name in ("specifications", "bika_specifications", "Specifications"):
@@ -518,23 +546,99 @@ def _find_matching_spec(portal, analysis, ar):
                     method_uid = analysis.getMethodUID()
                 except Exception:
                     pass
+
+                # Buscar match estricto
                 for cand in at_specs:
                     if _spec_matches(cand, service_uid, client_uid, sampletype_uid, method_uid):
                         logger.info("[AutoSpec] AT candidate: %s", getattr(cand, 'Title', lambda: cand)())
                         return cand
-                logger.info("[AutoSpec] AT fallback (first): %s", getattr(at_specs[0], 'Title', lambda: at_specs[0])())
-                return at_specs[0]
 
-    # --- AJUSTE CLAVE: Fallback por recorrido filtrando por soporte DX ---
-    only_at = not _has_dx_support(analysis)
+                # En producción NO tomar el primero si no hay match por servicio
+                if not AT_FALLBACK_FIRST:
+                    logger.info("[AutoSpec] AT: no se encontró Specification que coincida con el servicio")
+                else:
+                    logger.info("[AutoSpec] AT fallback (first): %s",
+                                getattr(at_specs[0], 'Title', lambda: at_specs[0])())
+                    return at_specs[0]
+
+    # === Fallback por traversal (opcional) ===
+    if not ALLOW_TRAVERSAL_FALLBACK:
+        logger.info("[AutoSpec] Traversal desactivado por configuración")
+        logger.info("[AutoSpec] Sin Specification encontrada")
+        return None
+
+    allow_dx = _has_dx_support(analysis)
+
+    # 2.1) Si NO hay soporte DX, ignora DX en traversal: solo AT
+    if not allow_dx or TRAVERSAL_ONLY_AT:
+        for cand in _iter_specs_by_traversal(portal):
+            pt = getattr(cand, "portal_type", "")
+            if pt != "Specification":  # solo AT
+                continue
+            if _spec_matches(cand, service_uid,
+                             getattr(ar.aq_parent, "UID", lambda: None)() if hasattr(ar, "aq_parent") else None,
+                             getattr(analysis, "getSampleTypeUID", lambda: None)(),
+                             getattr(analysis, "getMethodUID", lambda: None)()):
+                logger.info("[AutoSpec] Traversal candidate (AT-only): %s",
+                            getattr(cand, 'Title', lambda: cand)())
+                return cand
+        logger.info("[AutoSpec] Traversal no encontró AT compatible")
+        logger.info("[AutoSpec] Sin Specification encontrada")
+        return None
+
+    # 2.2) Con soporte DX: prioriza títulos preferidos primero (y valida filas)
+    def _norm_title(obj):
+        try:
+            t = getattr(obj, "Title", lambda: u"")()
+            return t.strip().lower()
+        except Exception:
+            return u""
+
+    pref_norm = [t.strip().lower() for t in PREFERRED_DX_TITLES if t]
+
+    first_pass = []
+    second_pass = []
+
+    try:
+        kw = (getattr(analysis, "getKeyword", None) or getattr(analysis, "getId", None) or (lambda: None))()
+        kw = (kw or "").strip()
+    except Exception:
+        kw = ""
+
+    def _parent_uid(ar):
+        try:
+            return ar.aq_parent.UID() if hasattr(ar.aq_parent, 'UID') else None
+        except Exception:
+            return None
+
     for cand in _iter_specs_by_traversal(portal):
-        pt = getattr(cand, 'portal_type', '')
-        if only_at and pt != "Specification":
-            # Sin soporte DX → saltamos DynamicAnalysisSpec
-            continue
-        logger.info("[AutoSpec] Traversal candidate: %s", getattr(cand, 'Title', lambda: cand)())
-        return cand
+        pt = getattr(cand, "portal_type", "")
 
+        # Validar DX: debe contener filas para el keyword/filtros
+        if pt in ("DynamicAnalysisSpec", "dynamic_analysisspec") and kw:
+            try:
+                sup = _dx_supports(cand, kw, _parent_uid(ar),
+                                   getattr(analysis, "getSampleTypeUID", lambda: None)(),
+                                   getattr(analysis, "getMethodUID", lambda: None)())
+                if sup is False:
+                    continue
+            except Exception:
+                pass
+
+        title_n = _norm_title(cand)
+        if title_n in pref_norm:
+            first_pass.append(cand)
+        else:
+            second_pass.append(cand)
+
+    choose_from = first_pass or second_pass
+    if choose_from:
+        best = choose_from[0]
+        logger.info("[AutoSpec] Traversal candidate (filtered): %s",
+                    getattr(best, 'Title', lambda: best)())
+        return best
+
+    logger.info("[AutoSpec] Traversal no encontró candidatos válidos")
     logger.info("[AutoSpec] Sin Specification encontrada")
     return None
 
@@ -615,13 +719,11 @@ def _apply_spec(analysis, spec):
                             except Exception:
                                 pass
 
-            # Evitar puente setSpecification*(DX)
             logger.warning("[AutoSpec] %s: NO se pudo aplicar DX (sin setters DX ni AnalysisSpec). Skip.",
                            getattr(analysis, 'Title', lambda: '?')())
             return False
 
         # --- AT clásico ---
-        # Asegura que exista AnalysisSpec antes de intentar vía hijo
         _ensure_analysis_spec_initialized(analysis)
 
         set_ok = False
