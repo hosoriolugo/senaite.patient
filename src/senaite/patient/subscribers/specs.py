@@ -329,6 +329,70 @@ def _user_already_selected(analysis):
     return bool(obj)
 
 # -------------------------------------------------------------------
+# AJUSTE: soporte de filas/keyword para DX
+# -------------------------------------------------------------------
+
+def _dx_supports(dx, keyword, client_uid=None, sampletype_uid=None, method_uid=None):
+    """
+    True si la DX contiene alguna fila para `keyword` (GLU/CRE/BUN, etc.),
+    y si están presentes en la fila, coincide con client/sampletype/method.
+    None si no se pudo inspeccionar filas (no bloquea la DX).
+    """
+    try:
+        rows = None
+        for attr in ("getRows", "getData", "get_data", "rows", "data"):
+            val = getattr(dx, attr, None)
+            if callable(val):
+                rows = val()
+            elif val is not None:
+                rows = val
+            if rows:
+                break
+        if not rows:
+            return None  # no se puede inferir
+
+        def norm(x):
+            if x is None:
+                return None
+            try:
+                return x.strip().upper()
+            except Exception:
+                try:
+                    return str(x).strip().upper()
+                except Exception:
+                    return x
+
+        kw = norm(keyword)
+        for r in rows:
+            k = norm(r.get("Keyword") or r.get("keyword") or r.get("service_keyword"))
+            if not k:
+                continue
+            if k != kw:
+                continue
+
+            ok_client = True
+            ok_stype = True
+            ok_method = True
+
+            if client_uid:
+                rc = r.get("client_uid") or r.get("ClientUID") or r.get("client")
+                ok_client = (not rc) or (norm(rc) == norm(client_uid))
+            if sampletype_uid:
+                rs = r.get("sampletype_uid") or r.get("SampleTypeUID") or r.get("sample_type")
+                ok_stype = (not rs) or (norm(rs) == norm(sampletype_uid))
+            if method_uid:
+                rm = r.get("method_uid") or r.get("MethodUID") or r.get("method")
+                ok_method = (not rm) or (norm(rm) == norm(method_uid))
+
+            if ok_client and ok_stype and ok_method:
+                return True
+
+        return False
+
+    except Exception:
+        return None
+
+# -------------------------------------------------------------------
 # SELECTOR DE SPEC (prioriza DX)
 # -------------------------------------------------------------------
 
@@ -355,27 +419,67 @@ def _prefer_dx_spec(portal, analysis, ar):
     if len(dx_specs) == 1:
         return dx_specs[0]
 
-    wanted_titles = (u"quimica 3 elementos", u"química 3 elementos")
-    for obj in dx_specs:
-        try:
-            t = getattr(obj, "Title", lambda: u"")()
-            if isinstance(t, basestring) and t.strip().lower() in wanted_titles:
-                return obj
-        except Exception:
-            pass
+    # Datos del análisis para filtrar
+    try:
+        keyword = (getattr(analysis, "getKeyword", None) or getattr(analysis, "getId", None) or (lambda: None))()
+    except Exception:
+        keyword = None
+    keyword = (keyword or "").strip()
 
     client_uid = None
+    sampletype_uid = None
+    method_uid = None
     try:
         client_uid = ar.aq_parent.UID() if hasattr(ar.aq_parent, 'UID') else None
     except Exception:
         client_uid = None
-    if client_uid:
-        for obj in dx_specs:
-            cx = getattr(obj, "client_uid", None) or _obj_uid(obj, "getClientUID")
-            if cx and cx == client_uid:
-                return obj
+    try:
+        sampletype_uid = analysis.getSampleTypeUID()
+    except Exception:
+        sampletype_uid = None
+    try:
+        method_uid = analysis.getMethodUID()
+    except Exception:
+        method_uid = None
 
-    return dx_specs[0]
+    # Scoring:
+    # +100 si la DX es específica del cliente y coincide
+    # +50 si confirmamos que contiene filas para el keyword (y filtros)
+    # +10 si no podemos inspeccionar filas (posible candidata)
+    # +5  si el título preferido coincide (tu caso)
+    wanted_titles = (u"quimica 3 elementos", u"química 3 elementos")
+    scored = []
+    for obj in dx_specs:
+        score = 0
+
+        cx = getattr(obj, "client_uid", None) or _obj_uid(obj, "getClientUID")
+        if cx and client_uid and cx == client_uid:
+            score += 100
+
+        sup = _dx_supports(obj, keyword, client_uid, sampletype_uid, method_uid)
+        if sup is True:
+            score += 50
+        elif sup is None:
+            score += 10
+        else:
+            score += 0
+
+        try:
+            t = getattr(obj, "Title", lambda: u"")()
+            if isinstance(t, basestring) and t.strip().lower() in wanted_titles:
+                score += 5
+        except Exception:
+            pass
+
+        scored.append((score, obj))
+
+    if not scored:
+        return None
+    scored.sort(key=lambda x: x[0], reverse=True)
+    best = scored[0][1]
+    if best:
+        logger.info("[AutoSpec] DX candidate (scored): %s", getattr(best, 'Title', lambda: best)())
+    return best
 
 # -------------------------------------------------------------------
 # BÚSQUEDA DE SPEC
