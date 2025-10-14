@@ -44,6 +44,12 @@ try:
 except NameError:
     unicode = str
 
+# Compat Zope DateTime (opcional)
+try:
+    import DateTime as ZDT  # Zope DateTime module
+except Exception:
+    ZDT = None
+
 
 def _norm(s):
     try:
@@ -62,11 +68,11 @@ def _norm(s):
 def _norm_sex(s):
     """Mapea valores comunes a 'm' o 'f' (y 'u' como comodín)."""
     v = _norm(s)
-    if v in (u"m", u"male", u"masculino", u"hombre"):
+    if v in (u"m", u"male", u"masculino", u"hombre", u"varón", u"varon"):
         return u"m"
-    if v in (u"f", u"female", u"femenino", u"mujer"):
+    if v in (u"f", u"female", u"femenino", u"mujer", u"hembra"):
         return u"f"
-    if v in (u"u", u"unk", u"unknown", u"desconocido"):
+    if v in (u"u", u"unk", u"unknown", u"desconocido", u"na", u"n/a", u"all", u"todos", u"todas"):
         return u"u"
     return v
 
@@ -90,7 +96,8 @@ def _to_int_or_none(v):
             v = v.strip()
             if v == "":
                 return None
-            return int(float(v.replace(",", ".")))
+            v = v.replace(",", ".")
+            return int(float(v))
         # otro numérico
         return int(v)
     except Exception:
@@ -98,11 +105,24 @@ def _to_int_or_none(v):
 
 
 def _to_date(obj):
-    """Convierte datetime/date a date (naive)."""
-    if isinstance(obj, datetime):
-        return obj.date()
-    if isinstance(obj, date):
-        return obj
+    """Convierte Zope DateTime / datetime / date a date (naive)."""
+    try:
+        if ZDT is not None:
+            try:
+                if isinstance(obj, ZDT.DateTime):
+                    return obj.asdatetime().date()
+            except Exception:
+                try:
+                    if hasattr(obj, "asdatetime"):
+                        return obj.asdatetime().date()
+                except Exception:
+                    pass
+        if isinstance(obj, datetime):
+            return obj.date()
+        if isinstance(obj, date):
+            return obj
+    except Exception:
+        pass
     return None
 
 
@@ -111,7 +131,7 @@ class PatientDynamicResultsRange(DynamicResultsRange):
     """Dynamic Results Range Adapter con soporte de edad y sexo:
 
     - MinAge/MaxAge  o  age_min_days/age_max_days: edad mínima/máxima (en días, inclusivo)
-    - Sex  o  gender: 'f'/'m' (acepta variantes) y prioridad M/F sobre U
+    - Sex  o  gender: 'f'/'m' (acepta variantes). 'U' solo aplica si el sexo del paciente es desconocido.
     """
 
     # ---------- Helpers para obtener datos del AR/Paciente (seguros) ----------
@@ -190,17 +210,30 @@ class PatientDynamicResultsRange(DynamicResultsRange):
     def patient_gender(self):
         """Género del paciente asociado al AR, normalizado."""
         gender = None
+        # AR primero
         try:
-            if hasattr(self.analysisrequest, "getGender"):
-                gender = self.analysisrequest.getGender()
+            getter = None
+            for name in ("getGender", "getSex", "Gender", "Sex"):
+                if hasattr(self.analysisrequest, name):
+                    getter = getattr(self.analysisrequest, name)
+                    gender = getter() if callable(getter) else getter
+                    if gender not in (None, u""):
+                        break
         except Exception:
             gender = None
 
+        # Paciente si no estaba en AR
         if gender in (None, u""):
             try:
                 p = self.patient
-                if p and hasattr(p, "getGender"):
-                    gender = p.getGender()
+                if p:
+                    getter = None
+                    for name in ("getGender", "getSex", "Gender", "Sex"):
+                        if hasattr(p, name):
+                            getter = getattr(p, name)
+                            gender = getter() if callable(getter) else getter
+                            if gender not in (None, u""):
+                                break
             except Exception:
                 gender = None
 
@@ -249,7 +282,7 @@ class PatientDynamicResultsRange(DynamicResultsRange):
 
         1) Lógica base de core (servicio, método, sample type, etc.)
         2) Filtros por edad (MinAge/MaxAge o age_min_days/age_max_days) — inclusivo
-        3) Filtro por sexo (Sex o gender) con prioridad M/F sobre U
+        3) Filtro por sexo (Sex o gender): si paciente es M/F, NO usar filas 'U'
         """
         # 1) Lógica base
         is_match = super(PatientDynamicResultsRange, self).match(dynamic_range)
@@ -259,7 +292,7 @@ class PatientDynamicResultsRange(DynamicResultsRange):
         # ---------------------- 2) EDAD --------------------------------------
         # Soporta ambos esquemas de columnas:
         #   - Clásico: MinAge / MaxAge (en días)
-        #   - Excel:  age_min_days / age_max_days
+        #   - Excel DX: age_min_days / age_max_days (en días)
         min_age = dynamic_range.get("MinAge")
         max_age = dynamic_range.get("MaxAge")
         if min_age in (None, u"", "") and max_age in (None, u"", ""):
@@ -288,7 +321,7 @@ class PatientDynamicResultsRange(DynamicResultsRange):
                 return False
 
         # ---------------------- 3) SEXO --------------------------------------
-        # Acepta 'Sex' (clásico) o 'gender' (Excel).
+        # Acepta 'Sex' (clásico) o 'gender' (DX/Excel, en minúsculas).
         sex_required = dynamic_range.get("Sex")
         if sex_required in (None, u"", ""):
             sex_required = dynamic_range.get("gender")
@@ -297,15 +330,21 @@ class PatientDynamicResultsRange(DynamicResultsRange):
             required = _norm_sex(sex_required)
             actual = self.patient_gender
 
-            # Prioridad: si el paciente es M/F y la fila es U/unknown -> NO match
-            if required in (u"u", u"unknown") and actual in (u"m", u"f"):
-                return False
+            # PRIORIDAD ESPECÍFICA:
+            # - Si el paciente tiene M/F, NO debemos aceptar una fila 'U' (unknown/all).
+            if required in (u"u", u"unknown"):
+                if actual in (u"m", u"f"):
+                    return False
+                # si el sexo del paciente es desconocido, 'U' sí aplica
+                return True
 
+            # - Si la fila exige m/f, debe coincidir exactamente
             if required in (u"m", u"f"):
                 if actual not in (u"m", u"f") or actual != required:
                     return False
             else:
-                if _norm(actual) != _norm(required) and required not in (u"u", u"unknown"):
+                # otro texto libre (por compatibilidad): comparar normalizado
+                if _norm(actual) != _norm(required):
                     return False
 
         # ---------- (OPCIONALES) Si añades estas columnas, descomenta ----------
