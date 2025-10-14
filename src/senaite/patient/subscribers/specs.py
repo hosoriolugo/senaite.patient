@@ -2,7 +2,10 @@
 # -*- coding: utf-8 -*-
 from Products.CMFCore.utils import getToolByName
 from zope.lifecycleevent.interfaces import IObjectAddedEvent, IObjectModifiedEvent
-from bika.lims import api, logger
+from bika.lims import api, logger as _bika_logger
+
+# --- Logging robusto (unicode-safe + dedupe) ---
+import logging
 
 # Compatibilidad Py2/Py3
 try:
@@ -10,7 +13,6 @@ try:
 except NameError:  # Py3
     basestring = str
 
-# Para _safe_unicode robusto en Py2 con acentos
 try:
     unicode
 except NameError:  # Py3
@@ -27,6 +29,50 @@ except Exception:
                 return unicode(str(x), 'utf-8', 'ignore')
             except Exception:
                 return u''
+
+class _UnicodeFilter(logging.Filter):
+    """Fuerza msg/args a unicode antes del formateo del logging."""
+    def filter(self, record):
+        try:
+            # Normaliza el msg
+            if isinstance(record.msg, bytes):
+                record.msg = _safe_unicode(record.msg)
+            elif isinstance(record.msg, basestring):
+                record.msg = _safe_unicode(record.msg)
+            # Normaliza los args
+            if isinstance(record.args, tuple) and record.args:
+                record.args = tuple(
+                    _safe_unicode(a) if isinstance(a, basestring) else a
+                    for a in record.args
+                )
+        except Exception:
+            # En caso de cualquier lío, no bloqueamos el log
+            pass
+        return True
+
+class _DedupFilter(logging.Filter):
+    """Evita imprimir la misma línea dos veces seguidas (mismo nivel/msg/args)."""
+    _last = None
+    def filter(self, record):
+        key = (record.levelno, record.msg, record.args)
+        if key == self._last:
+            return False
+        self._last = key
+        return True
+
+# Logger propio del módulo (sin tocar configuración global de bika.lims)
+_module_logger = logging.getLogger('senaite.patient.specs')
+# No añadimos handlers aquí; usamos los del root/bika para no duplicar salidas.
+# Solo filtros (idempotentes)
+_has_unicode = any(isinstance(f, _UnicodeFilter) for f in _module_logger.filters)
+if not _has_unicode:
+    _module_logger.addFilter(_UnicodeFilter())
+_has_dedup = any(isinstance(f, _DedupFilter) for f in _module_logger.filters)
+if not _has_dedup:
+    _module_logger.addFilter(_DedupFilter())
+
+# Usaremos este logger en el resto del módulo
+logger = _module_logger
 
 # -------------------------------------------------------------------
 # SOPORTE A AT y DX
@@ -341,9 +387,9 @@ def _log_capabilities(analysis, aspec):
                 "getDynamicAnalysisSpec": bool(aspec and callable(getattr(aspec, "getDynamicAnalysisSpec", None))),
             }
         }
-        logger.info("[AutoSpec][caps] %s svc=%s caps=%r", a_kw, svc_uid, caps)
+        logger.info(u"[AutoSpec][caps] %s svc=%s caps=%r", _safe_unicode(a_kw), _safe_unicode(svc_uid or u""), caps)
     except Exception as e:
-        logger.warning("[AutoSpec][caps] fallo al loggear capacidades: %r", e)
+        logger.warning(u"[AutoSpec][caps] fallo al loggear capacidades: %r", e)
 
 # -------------------------------------------------------------------
 # ESTADO ACTUAL / ASPEC
@@ -545,7 +591,7 @@ def _prefer_dx_spec(portal, analysis, ar):
     scored.sort(key=lambda x: x[0], reverse=True)
     best = scored[0][1]
     if best:
-        logger.info("[AutoSpec] DX candidate (scored): %s", _title(best))
+        logger.info(u"[AutoSpec] DX candidate (scored): %s", _title(best))
     return best
 
 # -------------------------------------------------------------------
@@ -657,10 +703,10 @@ def _find_matching_spec(portal, analysis, ar):
                              getattr(getattr(ar, "aq_parent", None), "UID", lambda: None)() if hasattr(ar, "aq_parent") else None,
                              getattr(analysis, "getSampleTypeUID", lambda: None)(),
                              getattr(analysis, "getMethodUID", lambda: None)()):
-                logger.info("[AutoSpec] Traversal candidate (AT-only): %s", _title(cand))
+                logger.info(u"[AutoSpec] Traversal candidate (AT-only): %s", _title(cand))
                 return cand
-        logger.info("[AutoSpec] Traversal no encontró AT compatible")
-        logger.info("[AutoSpec] Sin Specification encontrada")
+        logger.info(u"[AutoSpec] Traversal no encontró AT compatible")
+        logger.info(u"[AutoSpec] Sin Specification encontrada")
         return None
 
     def _norm_title(obj):
@@ -709,11 +755,11 @@ def _find_matching_spec(portal, analysis, ar):
     choose_from = first_pass or second_pass
     if choose_from:
         best = choose_from[0]
-        logger.info("[AutoSpec] Traversal candidate (filtered): %s", _title(best))
+        logger.info(u"[AutoSpec] Traversal candidate (filtered): %s", _title(best))
         return best
 
-    logger.info("[AutoSpec] Traversal no encontró candidatos válidos")
-    logger.info("[AutoSpec] Sin Specification encontrada")
+    logger.info(u"[AutoSpec] Traversal no encontró candidatos válidos")
+    logger.info(u"[AutoSpec] Sin Specification encontrada")
     return None
 
 # -------------------------------------------------------------------
@@ -724,7 +770,7 @@ def _apply_spec(analysis, spec):
     try:
         existing_kind, existing_obj = _current_spec_state(analysis)
         if existing_obj:
-            logger.info("[AutoSpec] %s: ya tiene spec %s (%s); no se sobreescribe",
+            logger.info(u"[AutoSpec] %s: ya tiene spec %s (%s); no se sobreescribe",
                         _title(analysis), _title(existing_obj), existing_kind or 'unknown')
             return True
 
@@ -749,7 +795,7 @@ def _apply_spec(analysis, spec):
                             analysis.reindexObject()
                         except Exception:
                             pass
-                        logger.info("[AutoSpec] %s: DX aplicada en Analysis vía %s",
+                        logger.info(u"[AutoSpec] %s: DX aplicada en Analysis vía %s",
                                     _title(analysis), setter_name)
                         return True
                     except Exception:
@@ -765,7 +811,7 @@ def _apply_spec(analysis, spec):
                         get_dx = getattr(aspec, "getDynamicAnalysisSpec", None)
                         curr = get_dx() if callable(get_dx) else None
                         if curr and _uid(curr) == spec_uid:
-                            logger.info("[AutoSpec] %s: DX ya enlazada (%s); no-op",
+                            logger.info(u"[AutoSpec] %s: DX ya enlazada (%s); no-op",
                                         _title(analysis), _title(spec))
                             return True
                     except Exception:
@@ -784,13 +830,13 @@ def _apply_spec(analysis, spec):
                                     analysis.reindexObject()
                                 except Exception:
                                     pass
-                                logger.info("[AutoSpec] %s: DX aplicada en AnalysisSpec vía %s → %s",
+                                logger.info(u"[AutoSpec] %s: DX aplicada en AnalysisSpec vía %s → %s",
                                             _title(analysis), setter_name, _title(spec))
                                 return True
                             except Exception:
                                 pass
 
-            logger.warning("[AutoSpec] %s: NO se pudo aplicar DX (sin setters DX ni AnalysisSpec). Skip.",
+            logger.warning(u"[AutoSpec] %s: NO se pudo aplicar DX (sin setters DX ni AnalysisSpec). Skip.",
                            _title(analysis))
             return False
 
@@ -822,7 +868,7 @@ def _apply_spec(analysis, spec):
                 break
 
         if not set_ok:
-            logger.warning("[AutoSpec] %s: No se pudo aplicar AT (sin setters compatibles).",
+            logger.warning(u"[AutoSpec] %s: No se pudo aplicar AT (sin setters compatibles).",
                            _title(analysis))
             return False
 
@@ -834,7 +880,7 @@ def _apply_spec(analysis, spec):
         return True
 
     except Exception as e:
-        logger.warning("[AutoSpec] No se pudo asignar Spec a %s: %r",
+        logger.warning(u"[AutoSpec] No se pudo asignar Spec a %s: %r",
                        getattr(analysis, 'getId', lambda: '?')(), e)
         return False
 
@@ -847,13 +893,13 @@ def _ensure_spec_ui(analysis):
     try:
         created = _ensure_analysis_spec_initialized(analysis)
         if created:
-            logger.info("[AutoSpec] %s: AnalysisSpec presente (UI listo para '± Especificaciones')",
+            logger.info(u"[AutoSpec] %s: AnalysisSpec presente (UI listo para '± Especificaciones')",
                         _title(analysis))
         else:
-            logger.info("[AutoSpec] %s: no se pudo garantizar AnalysisSpec (UI podría no mostrar '±')",
+            logger.info(u"[AutoSpec] %s: no se pudo garantizar AnalysisSpec (UI podría no mostrar '±')",
                         _title(analysis))
     except Exception as e:
-        logger.warning("[AutoSpec] %s: error asegurando AnalysisSpec para UI: %r",
+        logger.warning(u"[AutoSpec] %s: error asegurando AnalysisSpec para UI: %r",
                        _title(analysis), e)
 
 def apply_specs_for_ar(ar, event):
