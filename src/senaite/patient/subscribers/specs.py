@@ -2,11 +2,9 @@
 # -*- coding: utf-8 -*-
 from Products.CMFCore.utils import getToolByName
 from zope.lifecycleevent.interfaces import IObjectAddedEvent, IObjectModifiedEvent
-from bika.lims import api, logger
+from bika.lims import api, logger as _bika_logger
 
-# -------------------------------------------------------------------
-# LOGGING: unicode-safe + dedupe handlers (sin romper nada)
-# -------------------------------------------------------------------
+# --- Logging robusto (unicode-safe + dedupe) ---
 import logging
 
 # Compatibilidad Py2/Py3
@@ -15,7 +13,6 @@ try:
 except NameError:  # Py3
     basestring = str
 
-# Para _safe_unicode robusto en Py2 con acentos
 try:
     unicode
 except NameError:  # Py3
@@ -33,59 +30,49 @@ except Exception:
             except Exception:
                 return u''
 
-def _dedupe_logger_handlers(log):
-    """Quita handlers duplicados por tipo/stream/archivo/nivel."""
-    try:
-        seen = set()
-        for h in list(getattr(log, "handlers", [])):
-            sig = (h.__class__, getattr(h, "stream", None),
-                   getattr(h, "baseFilename", None), getattr(h, "level", None))
-            if sig in seen:
-                try:
-                    log.removeHandler(h)
-                except Exception:
-                    pass
-            else:
-                seen.add(sig)
-    except Exception:
-        pass
-
-def _wrap_unicode_logger_methods(log):
-    """Envuelve info/warning/error/debug/exception para que siempre sean unicode-safe."""
-    try:
-        for _name in ("info", "warning", "error", "debug", "exception"):
-            _orig = getattr(log, _name, None)
-            if not callable(_orig):
-                continue
-
-            def _make_wrapped(orig):
-                def _wrapped(msg, *args, **kwargs):
-                    try:
-                        umsg = _safe_unicode(msg)
-                        uargs = tuple(_safe_unicode(a) if isinstance(a, basestring) else a
-                                      for a in args)
-                        return orig(umsg, *uargs, **kwargs)
-                    except Exception:
-                        # Último recurso: imprime el msg ya convertido
-                        return orig(u"%s" % _safe_unicode(msg))
-                return _wrapped
-
-            setattr(log, _name, _make_wrapped(_orig))
-    except Exception:
-        pass
-
-# Aplica dedupe + envoltura unicode-safe a nuestro logger
-try:
-    _dedupe_logger_handlers(logger)
-    # Si este logger ya tiene handlers propios, evita doble salida via root
-    if getattr(logger, "handlers", None):
+class _UnicodeFilter(logging.Filter):
+    """Fuerza msg/args a unicode antes del formateo del logging."""
+    def filter(self, record):
         try:
-            logger.propagate = False
+            # Normaliza el msg
+            if isinstance(record.msg, bytes):
+                record.msg = _safe_unicode(record.msg)
+            elif isinstance(record.msg, basestring):
+                record.msg = _safe_unicode(record.msg)
+            # Normaliza los args
+            if isinstance(record.args, tuple) and record.args:
+                record.args = tuple(
+                    _safe_unicode(a) if isinstance(a, basestring) else a
+                    for a in record.args
+                )
         except Exception:
+            # En caso de cualquier lío, no bloqueamos el log
             pass
-    _wrap_unicode_logger_methods(logger)
-except Exception:
-    pass
+        return True
+
+class _DedupFilter(logging.Filter):
+    """Evita imprimir la misma línea dos veces seguidas (mismo nivel/msg/args)."""
+    _last = None
+    def filter(self, record):
+        key = (record.levelno, record.msg, record.args)
+        if key == self._last:
+            return False
+        self._last = key
+        return True
+
+# Logger propio del módulo (sin tocar configuración global de bika.lims)
+_module_logger = logging.getLogger('senaite.patient.specs')
+# No añadimos handlers aquí; usamos los del root/bika para no duplicar salidas.
+# Solo filtros (idempotentes)
+_has_unicode = any(isinstance(f, _UnicodeFilter) for f in _module_logger.filters)
+if not _has_unicode:
+    _module_logger.addFilter(_UnicodeFilter())
+_has_dedup = any(isinstance(f, _DedupFilter) for f in _module_logger.filters)
+if not _has_dedup:
+    _module_logger.addFilter(_DedupFilter())
+
+# Usaremos este logger en el resto del módulo
+logger = _module_logger
 
 # -------------------------------------------------------------------
 # SOPORTE A AT y DX
@@ -393,14 +380,14 @@ def _log_capabilities(analysis, aspec):
             "aspec": {
                 "exists": bool(aspec),
                 "setSpecification": bool(aspec and callable(getattr(aspec, "setSpecification", None))),
-                "setSpecificationUID": bool(aspec and callable(getattr(aspec, "setSpecificationUID", None)))),
-                "setDynamicAnalysisSpec": bool(aspec and callable(getattr(aspec, "setDynamicAnalysisSpec", None)))),
-                "setDynamicAnalysisSpecUID": bool(aspec and callable(getattr(aspec, "setDynamicAnalysisSpecUID", None)))),
+                "setSpecificationUID": bool(aspec and callable(getattr(aspec, "setSpecificationUID", None))),
+                "setDynamicAnalysisSpec": bool(aspec and callable(getattr(aspec, "setDynamicAnalysisSpec", None))),
+                "setDynamicAnalysisSpecUID": bool(aspec and callable(getattr(aspec, "setDynamicAnalysisSpecUID", None))),
                 "getSpecification": bool(aspec and callable(getattr(aspec, "getSpecification", None))),
                 "getDynamicAnalysisSpec": bool(aspec and callable(getattr(aspec, "getDynamicAnalysisSpec", None))),
             }
         }
-        logger.info(u"[AutoSpec][caps] %s svc=%s caps=%r", a_kw, svc_uid, caps)
+        logger.info(u"[AutoSpec][caps] %s svc=%s caps=%r", _safe_unicode(a_kw), _safe_unicode(svc_uid or u""), caps)
     except Exception as e:
         logger.warning(u"[AutoSpec][caps] fallo al loggear capacidades: %r", e)
 
@@ -850,7 +837,7 @@ def _apply_spec(analysis, spec):
                                 pass
 
             logger.warning(u"[AutoSpec] %s: NO se pudo aplicar DX (sin setters DX ni AnalysisSpec). Skip.",
-                           _safe_unicode(_title(analysis)))
+                           _title(analysis))
             return False
 
         # --- AT clásico ---
@@ -942,9 +929,9 @@ def apply_specs_for_ar(ar, event):
             if alt:
                 ok = _apply_spec(an, alt)
                 logger.info(u"[AutoSpec] Fallback a AT por catálogo: %s -> %s [%s]",
-                            _title(alt), _title(an), u"OK" if ok else u"FAIL")
+                            _title(alt), _title(an), "OK" if ok else "FAIL")
 
-        logger.info(u"[AutoSpec] %s -> %s [%s]", _title(spec), _title(an), u"OK" if ok else u"FAIL")
+        logger.info(u"[AutoSpec] %s -> %s [%s]", _title(spec), _title(an), "OK" if ok else "FAIL")
 
 def apply_spec_for_analysis(analysis, event):
     if not (IObjectAddedEvent.providedBy(event) or IObjectModifiedEvent.providedBy(event)):
@@ -981,9 +968,9 @@ def apply_spec_for_analysis(analysis, event):
         if alt:
             ok = _apply_spec(analysis, alt)
             logger.info(u"[AutoSpec] Fallback a AT por catálogo: %s -> %s [%s]",
-                        _title(alt), _title(analysis), u"OK" if ok else u"FAIL")
+                        _title(alt), _title(analysis), "OK" if ok else "FAIL")
 
-    logger.info(u"[AutoSpec] %s -> %s [%s]", _title(spec), _title(analysis), u"OK" if ok else u"FAIL")
+    logger.info(u"[AutoSpec] %s -> %s [%s]", _title(spec), _title(analysis), "OK" if ok else "FAIL")
 
 def on_object_added(obj, event):
     if not IObjectAddedEvent.providedBy(event):
