@@ -18,12 +18,12 @@
 # Copyright 2020-2025 by it's authors.
 # Some rights reserved, see README and LICENSE.
 
-from datetime import datetime
+from datetime import datetime, date
 
 from bika.lims.adapters.dynamicresultsrange import DynamicResultsRange
 from bika.lims.interfaces import IDynamicResultsRange
 from senaite.core.api import dtime
-from senaite.patient.api import get_birth_date  # (se mantiene por compat.)
+from senaite.patient.api import get_birth_date  # se mantiene por compatibilidad, aunque ahora calculamos edad directa
 from zope.interface import implementer
 from plone.memoize.instance import memoize
 
@@ -33,6 +33,16 @@ try:
 except Exception:
     import logging
     logger = logging.getLogger("senaite.patient.dynamicresultsrange")
+
+# Compat Py2
+try:
+    basestring
+except NameError:
+    basestring = str
+try:
+    unicode
+except NameError:
+    unicode = str
 
 
 def _norm(s):
@@ -50,77 +60,135 @@ def _norm(s):
 
 
 def _norm_sex(s):
-    """Mapea valores comunes a 'm' o 'f' para comparación robusta."""
+    """Mapea valores comunes a 'm' o 'f' (y 'u' como comodín)."""
     v = _norm(s)
     if v in (u"m", u"male", u"masculino", u"hombre"):
         return u"m"
     if v in (u"f", u"female", u"femenino", u"mujer"):
         return u"f"
-    # 'u', 'unknown', '', etc. serán tratados como comodín (fallback)
     if v in (u"u", u"unk", u"unknown", u"desconocido"):
         return u"u"
-    return v  # deja pasar otros valores por compatibilidad
+    return v
 
 
 def _to_int_or_none(v):
     if v in (None, u"", ""):
         return None
     try:
-        if isinstance(v, (int, long)):
+        # ya entero
+        if isinstance(v, int):
             return int(v)
+        # Py2 long
+        try:
+            long  # noqa
+            if isinstance(v, long):  # type: ignore  # noqa
+                return int(v)
+        except Exception:
+            pass
+        # string
         if isinstance(v, basestring):
             v = v.strip()
             if v == "":
                 return None
             return int(float(v.replace(",", ".")))
+        # otro numérico
         return int(v)
     except Exception:
         return None
 
 
-# NUEVO: util directo para edad en días (evita errores off-by-one con DOB)
-def _age_in_days(dob, sampled):
-    """Devuelve edad en días al momento de muestreo (int), o None si falta info."""
-    try:
-        if not dob or not sampled:
-            return None
-        dob_d = dtime.to_date(dob)
-        smp_d = dtime.to_date(sampled)
-        return (smp_d - dob_d).days
-    except Exception:
-        return None
+def _to_date(obj):
+    """Convierte datetime/date a date (naive)."""
+    if isinstance(obj, datetime):
+        return obj.date()
+    if isinstance(obj, date):
+        return obj
+    return None
 
 
 @implementer(IDynamicResultsRange)
 class PatientDynamicResultsRange(DynamicResultsRange):
-    """Dynamic Results Range Adapter que añade soporte a variables del paciente:
+    """Dynamic Results Range Adapter con soporte de edad y sexo:
 
-    - MinAge/MaxAge  o  age_min_days/age_max_days: edad mínima/máxima (en días)
-    - Sex  o  gender: 'f'/'m' (acepta variantes: 'female', 'femenino', etc.)
+    - MinAge/MaxAge  o  age_min_days/age_max_days: edad mínima/máxima (en días, inclusivo)
+    - Sex  o  gender: 'f'/'m' (acepta variantes) y prioridad M/F sobre U
     """
 
     # ---------- Helpers para obtener datos del AR/Paciente (seguros) ----------
 
     @property
     @memoize
-    def ansi_dob(self):
-        """Fecha de nacimiento en ANSI (evita TZ issues)."""
-        dob = None
+    def patient(self):
+        try:
+            getPatient = getattr(self.analysisrequest, "getPatient", None)
+            return getPatient() if callable(getPatient) else None
+        except Exception:
+            return None
+
+    @property
+    @memoize
+    def sampled_date(self):
+        """Fecha de muestreo como date (naive)."""
+        try:
+            sampled = getattr(self.analysisrequest, "getDateSampled", lambda: None)()
+            # algunos builds devuelven None: usar DateReceived o CreationDate como último recurso
+            if not sampled:
+                sampled = getattr(self.analysisrequest, "getDateReceived", lambda: None)() or getattr(
+                    self.analysisrequest, "created", None
+                )
+            return _to_date(sampled)
+        except Exception:
+            return None
+
+    @property
+    @memoize
+    def dob_date(self):
+        """DOB del paciente como date (naive). Busca en AR y en el objeto Paciente."""
+        # 1) AR field helpers
         try:
             dob_field = self.analysisrequest.getField("DateOfBirth")
             dob = dob_field.get_date_of_birth(self.analysisrequest)
+            d = _to_date(dob)
+            if d:
+                return d
         except Exception:
-            # Fallback: algunos builds exponen getDateOfBirth directamente
-            try:
-                dob = self.analysisrequest.getDateOfBirth()
-            except Exception:
-                dob = None
-        return dtime.to_ansi(dob) if dob else None
+            pass
+        try:
+            dob = getattr(self.analysisrequest, "getDateOfBirth", lambda: None)()
+            d = _to_date(dob)
+            if d:
+                return d
+        except Exception:
+            pass
+
+        # 2) Objeto Patient
+        p = self.patient
+        if p:
+            for getter_name in ("getDateOfBirth", "getBirthDate", "DateOfBirth", "BirthDate"):
+                try:
+                    val = getattr(p, getter_name, None)
+                    if callable(val):
+                        val = val()
+                    d = _to_date(val)
+                    if d:
+                        return d
+                except Exception:
+                    continue
+
+        # 3) Nada encontrado
+        return None
+
+    @property
+    @memoize
+    def ansi_dob(self):
+        """DOB en ANSI (para compatibilidad con superclases, por si acaso)."""
+        d = self.dob_date
+        return dtime.to_ansi(d) if d else None
 
     @property
     @memoize
     def patient_gender(self):
-        """Obtiene el género del paciente asociado al AR, normalizado."""
+        """Género del paciente asociado al AR, normalizado."""
         gender = None
         try:
             if hasattr(self.analysisrequest, "getGender"):
@@ -130,10 +198,9 @@ class PatientDynamicResultsRange(DynamicResultsRange):
 
         if gender in (None, u""):
             try:
-                getPatient = getattr(self.analysisrequest, "getPatient", None)
-                patient = getPatient() if getPatient else None
-                if patient and hasattr(patient, "getGender"):
-                    gender = patient.getGender()
+                p = self.patient
+                if p and hasattr(p, "getGender"):
+                    gender = p.getGender()
             except Exception:
                 gender = None
 
@@ -145,13 +212,12 @@ class PatientDynamicResultsRange(DynamicResultsRange):
         """Opcional: banderas comunes si existen (no rompen si faltan)."""
         flags = {"is_fasting": None, "is_pregnant": None}
         try:
-            getPatient = getattr(self.analysisrequest, "getPatient", None)
-            patient = getPatient() if getPatient else None
-            if patient:
-                if hasattr(patient, "getIsFasting"):
-                    flags["is_fasting"] = bool(patient.getIsFasting())
-                if hasattr(patient, "getIsPregnant"):
-                    flags["is_pregnant"] = bool(patient.getIsPregnant())
+            p = self.patient
+            if p:
+                if hasattr(p, "getIsFasting"):
+                    flags["is_fasting"] = bool(p.getIsFasting())
+                if hasattr(p, "getIsPregnant"):
+                    flags["is_pregnant"] = bool(p.getIsPregnant())
         except Exception:
             pass
         return flags
@@ -161,18 +227,15 @@ class PatientDynamicResultsRange(DynamicResultsRange):
     def patient_weight(self):
         """Opcional: peso del paciente si existe (float) o None."""
         try:
-            getPatient = getattr(self.analysisrequest, "getPatient", None)
-            patient = getPatient() if getPatient else None
-            if not patient:
+            p = self.patient
+            if not p:
                 return None
-            # Nombres típicos: Weight / getWeight
-            if hasattr(patient, "getWeight"):
-                val = patient.getWeight()
+            if hasattr(p, "getWeight"):
+                val = p.getWeight()
             else:
-                val = getattr(patient, "Weight", None)
+                val = getattr(p, "Weight", None)
             if val in (None, u"", ""):
                 return None
-            # normaliza coma/punto
             if isinstance(val, basestring):
                 val = val.replace(",", ".")
             return float(val)
@@ -185,15 +248,18 @@ class PatientDynamicResultsRange(DynamicResultsRange):
         """Decide si la fila dinámica aplica al contexto actual.
 
         1) Lógica base de core (servicio, método, sample type, etc.)
-        2) Filtros por edad (prioritario; min/max en días, inclusivo)
-        3) Filtro por sexo (M/F prioriza sobre U/unknown)
+        2) Filtros por edad (MinAge/MaxAge o age_min_days/age_max_days) — inclusivo
+        3) Filtro por sexo (Sex o gender) con prioridad M/F sobre U
         """
-        # 1) Lógica base: si falla ya no seguimos
-        if not super(PatientDynamicResultsRange, self).match(dynamic_range):
+        # 1) Lógica base
+        is_match = super(PatientDynamicResultsRange, self).match(dynamic_range)
+        if not is_match:
             return False
 
-        # ---------------------- 2) EDAD (PRIORITARIA) ------------------------
-        # Soporta ambos esquemas de columnas: MinAge/MaxAge o age_min_days/age_max_days
+        # ---------------------- 2) EDAD --------------------------------------
+        # Soporta ambos esquemas de columnas:
+        #   - Clásico: MinAge / MaxAge (en días)
+        #   - Excel:  age_min_days / age_max_days
         min_age = dynamic_range.get("MinAge")
         max_age = dynamic_range.get("MaxAge")
         if min_age in (None, u"", "") and max_age in (None, u"", ""):
@@ -203,55 +269,77 @@ class PatientDynamicResultsRange(DynamicResultsRange):
         min_age = _to_int_or_none(min_age)
         max_age = _to_int_or_none(max_age)
 
-        # Edad del paciente en días al momento de muestreo
-        sampled = getattr(self.analysisrequest, "getDateSampled", lambda: None)()
+        if min_age is not None or max_age is not None:
+            # cuando la fila trae límites de edad, NECESITAMOS DOB + sampled
+            dob_d = self.dob_date
+            smp_d = self.sampled_date
+            if not dob_d or not smp_d:
+                return False
 
-        # Recupera DOB real para el cálculo de edad (ansi_dob es string ANSI)
-        dob = None
-        try:
-            dob_field = self.analysisrequest.getField("DateOfBirth")
-            dob = dob_field.get_date_of_birth(self.analysisrequest)
-        except Exception:
-            try:
-                dob = self.analysisrequest.getDateOfBirth()
-            except Exception:
-                dob = None
+            # edad en días (inclusivo)
+            age_days = (smp_d - dob_d).days
+            if age_days < 0:
+                # DOB futuro improbable → no aplica
+                return False
 
-        age_days = _age_in_days(dob, sampled)
-
-        # Si la fila define límites y no podemos calcular edad, no aplica
-        if (min_age is not None or max_age is not None) and age_days is None:
-            return False
-
-        # Comparación inclusiva (min ≤ edad ≤ max)
-        if age_days is not None:
             if min_age is not None and age_days < min_age:
                 return False
             if max_age is not None and age_days > max_age:
                 return False
 
-        # ---------------------- 3) SEXO (PRIORITARIO) ------------------------
-        # Acepta 'Sex' (clásico) o 'gender' (Excel)
-        sex_required = dynamic_range.get("Sex") or dynamic_range.get("gender")
+        # ---------------------- 3) SEXO --------------------------------------
+        # Acepta 'Sex' (clásico) o 'gender' (Excel).
+        sex_required = dynamic_range.get("Sex")
+        if sex_required in (None, u"", ""):
+            sex_required = dynamic_range.get("gender")
+
         if sex_required not in (None, u"", ""):
             required = _norm_sex(sex_required)
-            actual = self.patient_gender  # ya normalizado
+            actual = self.patient_gender
 
-            # Si el paciente es M/F y la fila es U/unknown -> NO match
+            # Prioridad: si el paciente es M/F y la fila es U/unknown -> NO match
             if required in (u"u", u"unknown") and actual in (u"m", u"f"):
                 return False
 
-            # Si la fila exige M/F, debe coincidir exactamente
             if required in (u"m", u"f"):
                 if actual not in (u"m", u"f") or actual != required:
                     return False
             else:
-                # Valor no estándar: compara normalizado (excepto 'u' que es comodín)
-                if required not in (u"u", u"unknown") and _norm(actual) != _norm(required):
+                if _norm(actual) != _norm(required) and required not in (u"u", u"unknown"):
                     return False
 
-        # ---------- (OPCIONALES) Habilita si agregas estas columnas ----------
-        # Fasting / Pregnant / WeightMin/WeightMax (idéntico a tu versión, omitido)
+        # ---------- (OPCIONALES) Si añades estas columnas, descomenta ----------
+        # Fasting (True/False)
+        # fasting_required = dynamic_range.get("Fasting")
+        # if fasting_required not in (None, u"", ""):
+        #     val = self.patient_flags.get("is_fasting")
+        #     req = _norm(fasting_required)
+        #     req_bool = req in (u"true", u"1", u"si", u"sí", u"yes")
+        #     if val is None or bool(val) != req_bool:
+        #         return False
+        #
+        # Pregnant (True/False)
+        # pregnant_required = dynamic_range.get("Pregnant")
+        # if pregnant_required not in (None, u"", ""):
+        #     val = self.patient_flags.get("is_pregnant")
+        #     req = _norm(pregnant_required)
+        #     req_bool = req in (u"true", u"1", u"si", u"sí", u"yes")
+        #     if val is None or bool(val) != req_bool:
+        #         return False
+        #
+        # WeightMin / WeightMax (kg)
+        # wmin = dynamic_range.get("WeightMin")
+        # wmax = dynamic_range.get("WeightMax")
+        # if wmin not in (None, u"", "") or wmax not in (None, u"", ""):
+        #     w = self.patient_weight
+        #     if w is None:
+        #         return False
+        #     try:
+        #         if wmin not in (None, u"", "") and w < float(unicode(wmin).replace(",", ".")):
+        #             return False
+        #         if wmax not in (None, u"", "") and w > float(unicode(wmax).replace(",", ".")):
+        #             return False
+        #     except Exception:
+        #         pass
 
-        # Si pasa todos los filtros, la fila dinámica aplica
         return True
