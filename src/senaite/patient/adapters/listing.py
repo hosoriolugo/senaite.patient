@@ -33,6 +33,28 @@ from zope.component import adapts
 from zope.component import getMultiAdapter
 from zope.interface import implements
 
+# INFOLABSA: para consultar analyses vía catálogo
+from Products.CMFCore.utils import getToolByName  # <-- NUEVO
+
+
+# INFOLABSA: leer flags existentes en Analysis, sin recalcular rangos
+def _analysis_has_alert(a):
+    """Devuelve True si el Analysis ya marca fuera de rango/alerta/crítico.
+    NO modifica nada; solo lee flags existentes.
+    """
+    for attr in ("getResultFlag", "getResultFlags", "result_flag"):
+        if hasattr(a, attr):
+            try:
+                flag = getattr(a, attr)()
+            except TypeError:
+                flag = getattr(a, attr)
+            txt = api.safe_unicode(flag or u"").lower()
+            if any(k in txt for k in (u"out", u"rango", u"range", u"alert", u"crític", u"critic")):
+                return True
+    return False
+# /INFOLABSA
+
+
 # Statuses to add. List of dicts
 ADD_STATUSES = [{
     "id": "temp_mrn",
@@ -136,6 +158,34 @@ class SamplesListingAdapter(object):
 
         item["MRN"] = sample_patient_mrn
         item["Patient"] = sample_patient_fullname
+
+        # ===================== INFOLABSA: sombrear fila si hay alerta =====================
+        # Lo hacemos aquí, ANTES de cualquier return anticipado, y solo leemos flags ya existentes
+        try:
+            pc = getToolByName(self.context, "portal_catalog")
+            uid = api.get_uid(obj)
+
+            # Analyses del AR (índice habitual; fallback a getAnalysisRequestUID)
+            brains = pc(portal_type="Analysis", getRequestUID=uid)
+            if not brains:
+                brains = pc(portal_type="Analysis", getAnalysisRequestUID=uid)
+
+            any_alert = False
+            for b in brains:
+                a = b.getObject()
+                if _analysis_has_alert(a):
+                    any_alert = True
+                    break
+
+            if any_alert:
+                # Escribimos en todas las llaves de clase de fila que el renderer pueda usar
+                for key in ("class", "state_class", "row_class", "review_state_class"):
+                    cur = item.get(key) or u""
+                    item[key] = (cur + u" row-flag-alert").strip()
+        except Exception:
+            # No interrumpir el listado por un fallo en este realce visual
+            pass
+        # ===================== /INFOLABSA =================================================
 
         # Obtener el objeto Paciente
         patient = self.get_patient_by_mrn(sample_patient_mrn)
