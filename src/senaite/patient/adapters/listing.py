@@ -37,20 +37,66 @@ from zope.interface import implements
 from Products.CMFCore.utils import getToolByName  # <-- NUEVO
 
 
-# INFOLABSA: leer flags existentes en Analysis, sin recalcular rangos
-def _analysis_has_alert(a):
-    """Devuelve True si el Analysis ya marca fuera de rango/alerta/crítico.
-    NO modifica nada; solo lee flags existentes.
+# INFOLABSA: leer flags existentes (sin recalcular rangos)
+def _analysis_has_alert_from_text(txt):
+    """Normaliza texto y detecta las palabras clave que ya usas para alertas."""
+    if not txt:
+        return False
+    t = api.safe_unicode(txt).lower()
+    # Ajusta/añade tokens si en tu instancia usas otros
+    tokens = (u"out", u"fuera", u"rango", u"range", u"abnormal",
+              u"alert", u"crític", u"critic", u"panic", u"danger")
+    return any(tok in t for tok in tokens)
+
+
+def _analysis_has_alert(a, brain=None):
+    """True si el Analysis YA marca alerta/flag según tus cálculos existentes.
+    1) Intenta primero con metadatos del catálogo (brain) si están indexados.
+    2) Si no, usa atributos/métodos del objeto Analysis.
     """
-    for attr in ("getResultFlag", "getResultFlags", "result_flag"):
-        if hasattr(a, attr):
-            try:
-                flag = getattr(a, attr)()
-            except TypeError:
-                flag = getattr(a, attr)
-            txt = api.safe_unicode(flag or u"").lower()
-            if any(k in txt for k in (u"out", u"rango", u"range", u"alert", u"crític", u"critic")):
-                return True
+    # 1) Metadata del brain (sin cargar objeto)
+    if brain is not None:
+        for meta in ("result_flags", "ResultFlags", "ResultFlag",
+                     "getResultFlags", "getResultFlag"):
+            if hasattr(brain, meta):
+                val = getattr(brain, meta)
+                if callable(val):
+                    try:
+                        val = val()
+                    except Exception:
+                        val = None
+                if isinstance(val, (list, tuple)):
+                    if any(_analysis_has_alert_from_text(x) for x in val):
+                        return True
+                else:
+                    if _analysis_has_alert_from_text(val):
+                        return True
+
+    # 2) Atributos/métodos del objeto Analysis (sin recalcular rangos)
+    if a is not None:
+        for attr in ("getResultFlags", "ResultFlags", "getResultFlag", "result_flag"):
+            if hasattr(a, attr):
+                try:
+                    val = getattr(a, attr)()
+                except TypeError:
+                    val = getattr(a, attr)
+                if isinstance(val, (list, tuple)):
+                    if any(_analysis_has_alert_from_text(x) for x in val):
+                        return True
+                else:
+                    if _analysis_has_alert_from_text(val):
+                        return True
+
+        # Booleans comunes en algunas configuraciones
+        for attr in ("getOutOfRange", "isOutOfRange", "hasPanicAlert", "getPanicAlert"):
+            if hasattr(a, attr):
+                try:
+                    v = getattr(a, attr)()
+                except TypeError:
+                    v = getattr(a, attr)
+                if bool(v):
+                    return True
+
     return False
 # /INFOLABSA
 
@@ -160,7 +206,7 @@ class SamplesListingAdapter(object):
         item["Patient"] = sample_patient_fullname
 
         # ===================== INFOLABSA: sombrear fila si hay alerta =====================
-        # Lo hacemos aquí, ANTES de cualquier return anticipado, y solo leemos flags ya existentes
+        # Lo hacemos aquí, ANTES de cualquier return anticipado. Solo leemos flags ya existentes.
         try:
             pc = getToolByName(self.context, "portal_catalog")
             uid = api.get_uid(obj)
@@ -172,8 +218,13 @@ class SamplesListingAdapter(object):
 
             any_alert = False
             for b in brains:
+                # 1º intenta con metadata del brain (si está indexada)
+                if _analysis_has_alert(None, brain=b):
+                    any_alert = True
+                    break
+                # 2º si hace falta, carga el objeto y revisa flags en el objeto
                 a = b.getObject()
-                if _analysis_has_alert(a):
+                if _analysis_has_alert(a, brain=b):
                     any_alert = True
                     break
 
