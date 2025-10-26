@@ -46,4 +46,13 @@
     layer="senaite.patient.interfaces.ISenaitePatientLayer"
     />
 
+  <!-- INFOLABSA: Override para auto-asignar Tipo de muestra según Perfil -->
+  <browser:view
+      name="samples/ajax_ar_add"
+      for="*"
+      layer="senaite.patient.interfaces.ISenaitePatientLayer"
+      permission="zope2.View"
+      class=".ajax_ar_add_ext.AjaxARAddExt"
+  />
+
 </configure>
