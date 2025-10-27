@@ -3,34 +3,27 @@
 from Products.Five import BrowserView
 from zope.interface import alsoProvides, noLongerProvides
 from bika.lims import api
-import logging
-import json
+import logging, json
 
-# IMPORTA tu layer (el mismo del ZCML)
 from senaite.patient.interfaces import ISenaitePatientLayer
 
 logger = logging.getLogger(__name__)
 
 def _safe_lower(s):
-    try:
-        return s.strip().lower()
-    except Exception:
-        return None
+    try: return s.strip().lower()
+    except Exception: return None
 
 def _get_profile_key(profile_obj):
-    # Cubre forks: getProfileKey (estándar), getKeyword, getKey
     for getter in ("getProfileKey", "getKeyword", "getKey"):
         if hasattr(profile_obj, getter):
             try:
                 val = getattr(profile_obj, getter)()
-                if val:
-                    return val
+                if val: return val
             except Exception:
                 pass
     return None
 
 def _get_prefix(sampletype_obj):
-    # Cubre forks: getPrefix, Prefix, prefix, get_prefix
     for getter in ("getPrefix", "Prefix", "prefix", "get_prefix"):
         if hasattr(sampletype_obj, getter):
             try:
@@ -40,8 +33,7 @@ def _get_prefix(sampletype_obj):
     return None
 
 def _find_sampletype_uid_by_prefix(prefix_value):
-    if not prefix_value:
-        return None
+    if not prefix_value: return None
     wanted = _safe_lower(prefix_value)
     setup_catalog = api.get_tool("senaite_catalog_setup")
     for brain in setup_catalog(portal_type="SampleType", is_active=True):
@@ -54,37 +46,53 @@ def _find_sampletype_uid_by_prefix(prefix_value):
             return st.UID()
     return None
 
-
 class AjaxARAddExt(BrowserView):
-    """Proxy del view core @@samples/ajax_ar_add con post-procesado INFOLABSA."""
-    def recalculate_records(self):
-        logger.info("INFOLABSA: override recalculate_records() - ENTER")
+    """Proxy del view core @@samples/ajax_ar_add.
+       Expone TODOS los métodos que usa la UI y delega al core,
+       pero modifica recalculate_records() para autollenar SampleType.
+    """
 
-        # 1) Desactivar temporalmente nuestro layer para resolver el core
+    # ---------- util: conseguir el view del core sin nuestro layer ----------
+    def _core(self):
         noLongerProvides(self.request, ISenaitePatientLayer)
         try:
-            base_view = self.context.restrictedTraverse('@@samples/ajax_ar_add')
-            base_resp = base_view.recalculate_records()
+            return self.context.restrictedTraverse('@@samples/ajax_ar_add')
         finally:
             alsoProvides(self.request, ISenaitePatientLayer)
 
-        # 2) Normalizar: str(JSON) -> dict
-        original_type = type(base_resp).__name__
-        logger.info("INFOLABSA: core recalculate_records() returned type=%s", original_type)
+    # ---------- métodos llamados por la UI (delegan al core) ----------
+    def get_global_settings(self, *a, **kw):
+        return self._core().get_global_settings(*a, **kw)
 
-        was_string = False
+    def get_flush_settings(self, *a, **kw):
+        return self._core().get_flush_settings(*a, **kw)
+
+    def get_service(self, *a, **kw):
+        return self._core().get_service(*a, **kw)
+
+    def is_reference_value_allowed(self, *a, **kw):
+        return self._core().is_reference_value_allowed(*a, **kw)
+
+    def recalculate_prices(self, *a, **kw):
+        # Precios no los tocamos; 100% core
+        return self._core().recalculate_prices(*a, **kw)
+
+    # ---------- único método con lógica INFOLABSA ----------
+    def recalculate_records(self, *a, **kw):
+        logger.info("INFOLABSA: override recalculate_records() - ENTER")
+        base_resp = self._core().recalculate_records(*a, **kw)
+
+        # Normaliza str(JSON) -> dict
+        was_string = isinstance(base_resp, basestring)
         data = base_resp
-        if isinstance(base_resp, basestring):
-            was_string = True
+        if was_string:
             try:
                 data = json.loads(base_resp)
                 logger.info("INFOLABSA: JSON decoded OK (len=%d)", len(base_resp))
             except Exception as e:
                 logger.warn("INFOLABSA: JSON decode failed: %r", e)
-                # Si falla, devolvemos lo original para no romper la UI
-                return base_resp
+                return base_resp  # no rompemos la UI
 
-        # 3) Post-procesar records
         try:
             records = data.get("records", [])
             logger.info("INFOLABSA: records count=%d", len(records))
@@ -103,7 +111,6 @@ class AjaxARAddExt(BrowserView):
                 logger.info("INFOLABSA: rec[%d] sin Profiles/Profile -> skip", idx)
                 continue
 
-            # Acepta dict {'UID': ...} o string UID
             first = profiles[0]
             prof_uid = first.get("UID") if isinstance(first, dict) else first
             if not prof_uid:
@@ -129,7 +136,7 @@ class AjaxARAddExt(BrowserView):
             changed = True
             logger.info("INFOLABSA: rec[%d] asignado SampleType UID=%s por Prefijo='%s'", idx, st_uid, key)
 
-        # 4) Devolver en el mismo formato que trajo el core
+        # Devuelve en el mismo formato que vino
         if was_string:
             try:
                 out = json.dumps(data)
