@@ -4,49 +4,9 @@
     xmlns:browser="http://namespaces.zope.org/browser"
     i18n_domain="senaite.patient">
 
-  <!-- Package includes -->
-  <include package=".client"/>
-  <include package=".patient"/>
-  <include package=".theme"/>
-  <include package=".viewlets"/>
-  <include package=".widgets"/>
+  <!-- ... tus includes existentes ... -->
 
-  <!-- Patient Folder View -->
-  <browser:page
-      name="view"
-      for="senaite.patient.content.patientfolder.IPatientFolder"
-      class=".patientfolder.PatientFolderView"
-      permission="zope2.View"
-      layer="senaite.patient.interfaces.ISenaitePatientLayer"
-      />
-
-  <!-- Patient Controlpanel -->
-  <browser:page
-      name="patient-controlpanel"
-      for="Products.CMFPlone.interfaces.IPloneSiteRoot"
-      class=".controlpanel.PatientControlPanelView"
-      permission="senaite.patient.permissions.ManagePatients"
-      layer="senaite.patient.interfaces.ISenaitePatientLayer"
-      />
-
-  <!-- Static directory for js, css and image resources -->
-  <plone:static
-    directory="static"
-    type="plone"
-    name="senaite.patient.static"
-    />
-
-  <!-- Static Resources Viewlet -->
-  <browser:viewlet
-    name="senaite.patient.static"
-    manager="plone.app.layout.viewlets.interfaces.IHtmlHead"
-    class="senaite.core.browser.viewlets.resources.ResourcesViewlet"
-    permission="zope2.View"
-    template="./static/resources.pt"
-    layer="senaite.patient.interfaces.ISenaitePatientLayer"
-    />
-
-  <!-- INFOLABSA: Override para auto-asignar Tipo de muestra según Perfil -->
+  <!-- Override principal -->
   <browser:view
       name="samples/ajax_ar_add"
       for="*"
@@ -59,10 +19,13 @@
                           recalculate_records
                           recalculate_prices
                           get_service
-                          is_reference_value_allowed"
+                          is_reference_value_allowed
+                          diag_env
+                          diag_widgetpaths
+                          diag_lookup"
   />
 
-  <!-- Vista de prueba/diagnóstico principal -->
+  <!-- Páginas utilitarias (acceso directo con @@) -->
   <browser:page
       name="ajax_ar_add_ext_ping"
       for="*"
@@ -72,7 +35,6 @@
       attribute="ping"
   />
 
-  <!-- DIAGNÓSTICOS adicionales (antes daban 404) -->
   <browser:page
       name="ajax_ar_add_ext_diag_env"
       for="*"
@@ -81,6 +43,7 @@
       class=".ajax_ar_add_ext.AjaxARAddExt"
       attribute="diag_env"
   />
+
   <browser:page
       name="ajax_ar_add_ext_diag_widgetpaths"
       for="*"
@@ -89,6 +52,7 @@
       class=".ajax_ar_add_ext.AjaxARAddExt"
       attribute="diag_widgetpaths"
   />
+
   <browser:page
       name="ajax_ar_add_ext_diag_lookup"
       for="*"
@@ -97,5 +61,4 @@
       class=".ajax_ar_add_ext.AjaxARAddExt"
       attribute="diag_lookup"
   />
-
 </configure>
