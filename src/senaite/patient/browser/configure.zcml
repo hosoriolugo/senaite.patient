@@ -47,17 +47,22 @@
     />
 
   <!-- INFOLABSA: Override para auto-asignar Tipo de muestra según Perfil -->
-  <!-- IMPORTANTE: el nombre correcto de la vista es 'ajax_ar_add' (sin 'samples/') -->
   <browser:view
-      name="ajax_ar_add"
+      name="samples/ajax_ar_add"
       for="*"
       layer="senaite.patient.interfaces.ISenaitePatientLayer"
       permission="zope2.View"
       class=".ajax_ar_add_ext.AjaxARAddExt"
-      allowed_attributes="get_global_settings get_flush_settings recalculate_records recalculate_prices get_service is_reference_value_allowed ping"
+      allowed_attributes="ping
+                          get_global_settings
+                          get_flush_settings
+                          recalculate_records
+                          recalculate_prices
+                          get_service
+                          is_reference_value_allowed"
   />
 
-  <!-- Endpoint de diagnóstico para verificar que el override responde -->
+  <!-- Vista de prueba/diagnóstico -->
   <browser:page
       name="ajax_ar_add_ext_ping"
       for="*"
