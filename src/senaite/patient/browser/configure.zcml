@@ -53,7 +53,17 @@
       layer="senaite.patient.interfaces.ISenaitePatientLayer"
       permission="zope2.View"
       class=".ajax_ar_add_ext.AjaxARAddExt"
-      allowed_attributes="get_global_settings get_flush_settings recalculate_records recalculate_prices get_service is_reference_value_allowed"
+      allowed_attributes="get_global_settings get_flush_settings recalculate_records recalculate_prices get_service is_reference_value_allowed ping"
+  />
+
+  <!-- Endpoint de diagnóstico directo (útil para pruebas rápidas) -->
+  <browser:page
+      name="samples/ajax_ar_add/ping"
+      for="*"
+      layer="senaite.patient.interfaces.ISenaitePatientLayer"
+      permission="zope2.View"
+      class=".ajax_ar_add_ext.AjaxARAddExt"
+      attribute="ping"
   />
 
 </configure>
