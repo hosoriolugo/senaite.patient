@@ -1,46 +1,14 @@
 # -*- coding: utf-8 -*-
 # INFOLABSA: Auto-asignar SampleType por match Prefijo (SampleType) == Palabra clave (Perfil)
+from Products.Five import BrowserView
+from zope.interface import alsoProvides, noLongerProvides
 from bika.lims import api
 import logging
 
+# IMPORTA tu layer (el mismo del ZCML)
+from senaite.patient.interfaces import ISenaitePatientLayer
+
 logger = logging.getLogger(__name__)
-
-# -------- Resolver AjaxARAdd del core con fallbacks (distintas rutas entre versiones) -----
-CoreAjaxARAdd = None
-_import_errors = []
-
-def _try_import(dotted, attr):
-    try:
-        mod = __import__(dotted, fromlist=[attr])
-        return getattr(mod, attr)
-    except Exception as e:
-        _import_errors.append("%s.%s -> %s" % (dotted, attr, repr(e)))
-        return None
-
-# Candidatos conocidos en SENAITE/Bika (según versión/paquete)
-# Ordenados por probabilidad
-for dotted, attr in [
-    ("senaite.core.browser.samples.ajax", "AjaxARAdd"),
-    ("senaite.core.browser.samples.ajax_ar_add", "AjaxARAdd"),
-    ("senaite.core.browser.ajax", "AjaxARAdd"),
-    ("senaite.core.browser.ajax_ar_add", "AjaxARAdd"),
-    ("bika.lims.browser.samples.ajax", "AjaxARAdd"),
-    ("bika.lims.browser.samples.ajax_ar_add", "AjaxARAdd"),
-    ("bika.lims.browser.ajax", "AjaxARAdd"),
-]:
-    CoreAjaxARAdd = _try_import(dotted, attr)
-    if CoreAjaxARAdd:
-        logger.info("INFOLABSA: AjaxARAdd base resuelto desde %s.%s", dotted, attr)
-        break
-
-if not CoreAjaxARAdd:
-    # No encontramos ninguna ruta; dejamos un error explícito con pistas
-    raise ImportError(
-        "INFOLABSA: No se pudo localizar AjaxARAdd en el core. Intentos:\n  - " +
-        "\n  - ".join(_import_errors)
-    )
-
-# -----------------------------------------------------------------------------------------
 
 def _safe_lower(s):
     try:
@@ -87,10 +55,29 @@ def _find_sampletype_uid_by_prefix(prefix_value):
     return None
 
 
-class AjaxARAddExt(CoreAjaxARAdd):
-    """Post-procesa recalculate_records() para rellenar SampleType si hay match."""
+class AjaxARAddExt(BrowserView):
+    """Proxy del view core @@samples/ajax_ar_add con post-procesado INFOLABSA.
+
+    Estrategia:
+      - Quitamos temporalmente nuestro layer del request
+      - Resolvemos el view original por traversal @@samples/ajax_ar_add
+      - Llamamos recalculate_records() del core
+      - Restauramos el layer
+      - Post-procesamos 'records' para autocompletar SampleType
+    """
+
     def recalculate_records(self):
-        data = super(AjaxARAddExt, self).recalculate_records()
+        # 1) Desactivar *temporalmente* nuestro layer para no resolvernos a nosotros mismos
+        noLongerProvides(self.request, ISenaitePatientLayer)
+        try:
+            # 2) Resolver el view original del core y ejecutar su lógica
+            base_view = self.context.restrictedTraverse('@@samples/ajax_ar_add')
+            data = base_view.recalculate_records()
+        finally:
+            # 3) Restaurar nuestro layer
+            alsoProvides(self.request, ISenaitePatientLayer)
+
+        # 4) Post-procesar: autocompletar SampleType si hay match Perfil↔Prefijo
         try:
             records = data.get("records", [])
         except Exception:
@@ -98,7 +85,7 @@ class AjaxARAddExt(CoreAjaxARAdd):
             return data
 
         for rec in records:
-            # Si ya hay SampleType, no tocamos
+            # Si ya hay Tipo de muestra, no tocamos
             if rec.get("SampleType"):
                 continue
 
