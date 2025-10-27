@@ -62,7 +62,7 @@
                           is_reference_value_allowed"
   />
 
-  <!-- Vista de prueba/diagnóstico -->
+  <!-- Vista de prueba/diagnóstico principal -->
   <browser:page
       name="ajax_ar_add_ext_ping"
       for="*"
@@ -70,6 +70,32 @@
       permission="zope2.View"
       class=".ajax_ar_add_ext.AjaxARAddExt"
       attribute="ping"
+  />
+
+  <!-- DIAGNÓSTICOS adicionales (antes daban 404) -->
+  <browser:page
+      name="ajax_ar_add_ext_diag_env"
+      for="*"
+      layer="senaite.patient.interfaces.ISenaitePatientLayer"
+      permission="zope2.View"
+      class=".ajax_ar_add_ext.AjaxARAddExt"
+      attribute="diag_env"
+  />
+  <browser:page
+      name="ajax_ar_add_ext_diag_widgetpaths"
+      for="*"
+      layer="senaite.patient.interfaces.ISenaitePatientLayer"
+      permission="zope2.View"
+      class=".ajax_ar_add_ext.AjaxARAddExt"
+      attribute="diag_widgetpaths"
+  />
+  <browser:page
+      name="ajax_ar_add_ext_diag_lookup"
+      for="*"
+      layer="senaite.patient.interfaces.ISenaitePatientLayer"
+      permission="zope2.View"
+      class=".ajax_ar_add_ext.AjaxARAddExt"
+      attribute="diag_lookup"
   />
 
 </configure>
