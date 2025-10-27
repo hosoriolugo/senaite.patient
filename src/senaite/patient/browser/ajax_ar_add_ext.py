@@ -2,13 +2,21 @@
 from Products.Five.browser import BrowserView
 from zope.interface import alsoProvides, noLongerProvides
 from Products.CMFCore.utils import getToolByName
+from zope.publisher.browser import BrowserView as ZopeBrowserView  # por si hiciera falta
+from zope.component import getMultiAdapter  # no usado, pero mantenido por compat
+
 import json
 import logging
 
 from senaite.patient.interfaces import ISenaitePatientLayer
 
-logger = logging.getLogger("senaite.patient.ajax_ar_add_ext")
+# Compat Py2/Py3
+try:
+    basestring  # type: ignore
+except NameError:  # Py3
+    basestring = str  # type: ignore
 
+logger = logging.getLogger("senaite.patient.ajax_ar_add_ext")
 
 # ------------------------------------------------------------------------------#
 # Helpers de capa / JSON
@@ -29,7 +37,6 @@ def _json_loads(raw):
 
 def _json_dumps(payload):
     try:
-        # Mantén el formato original (el core suele devolver dict/list)
         return json.dumps(payload)
     except Exception:
         logger.exception("AjaxARAddExt: no pude serializar payload; lo retorno tal cual.")
@@ -43,6 +50,7 @@ class AjaxARAddExt(BrowserView):
     """Wrapper para @@ajax_ar_add del core con post-proceso:
        - Mantiene funcionalidad original.
        - Autocompleta SampleType si está vacío usando el AnalysisProfile.
+       - Expone endpoints de diagnóstico para inspección controlada.
     """
 
     # -------------------------- Diagnóstico -----------------------------------#
@@ -53,11 +61,50 @@ class AjaxARAddExt(BrowserView):
                 return u"OK: AjaxARAddExt ACTIVO; delegación al core @@ajax_ar_add OK."
         except Exception as e:
             try:
-                logger.warn("Ping delegation error: %r", e)
+                logger.warn("Ping delegation error: %r", e)  # Py2
             except Exception:
-                logger.warning("Ping delegation error: %r", e)
+                logger.warning("Ping delegation error: %r", e)  # Py3
         return (u"WARN: AjaxARAddExt PASIVO; no pude resolver @@ajax_ar_add en el core. "
                 u"Revisa registro de la vista base.")
+
+    def diag_env(self):
+        """Muestra información mínima del entorno para confirmar capa y resolución del core."""
+        request = self.request
+        has_layer = _has_patient_layer(request)
+        core = self._core_view()
+        msg = [
+            u"AjaxARAddExt DIAG ENV",
+            u"- ISenaitePatientLayer activo: %s" % has_layer,
+            u"- Core @@ajax_ar_add resolvió: %s" % bool(core),
+        ]
+        return u"\n".join(msg)
+
+    def diag_widgetpaths(self):
+        """Devuelve las rutas de claves típicas que miramos en values (SampleType y Profile)."""
+        keys_sample = [
+            "SampleType-0", "SampleType", "SampleTypes", "SampleTypes-0",
+            "SampleType-0_uid", "SampleType-0:uid", "SampleType-0:title", "SampleType-0_dict",
+        ]
+        keys_profile = [
+            "Profiles-0", "Profiles", "Profile", "profile",
+            "Profiles-0_uid", "Profiles-0:uid",
+        ]
+        msg = [
+            u"AjaxARAddExt DIAG WIDGETPATHS",
+            u"- Claves SampleType candidatas: %s" % ", ".join(keys_sample),
+            u"- Claves Profile candidatas: %s" % ", ".join(keys_profile),
+        ]
+        return u"\n".join(msg)
+
+    def diag_lookup(self):
+        """Prueba de resolución: ?profile_uid=<UID> → muestra SampleType (uid, title)."""
+        profile_uid = (self.request.form.get("profile_uid") or u"").strip()
+        if not profile_uid:
+            return u"USO: @@ajax_ar_add_ext_diag_lookup?profile_uid=<UID>"
+        st_uid, st_title = _resolve_sampletype_from_profile(self.context, profile_uid)
+        return u"LOOKUP: profile_uid=%s -> sampletype_uid=%s, title=%s" % (
+            profile_uid, st_uid, st_title
+        )
 
     # -------------------------- Delegación segura ------------------------------#
     def _core_view(self):
@@ -113,22 +160,27 @@ class AjaxARAddExt(BrowserView):
             return raw
 
         try:
-            # 1) Iterar records/values en el payload del core
             changed_any = False
             for idx, vals in _iter_values_dicts(payload):
+                # LOG a nivel INFO para ver qué claves llegan realmente
+                try:
+                    logger.info("AjaxARAddExt: [%s] values_keys=%r", idx, sorted(list(vals.keys())))
+                except Exception:
+                    logger.info("AjaxARAddExt: [%s] values_keys=<no-listable>", idx)
+
                 if _sampletype_is_set(vals):
                     logger.debug("AjaxARAddExt: [%s] SampleType ya estaba seteado; sin cambios.", idx)
                     continue
 
                 profile_uid = _extract_profile_uid(vals)
-                logger.debug("AjaxARAddExt: [%s] profile_uid detectado=%r", idx, profile_uid)
+                logger.info("AjaxARAddExt: [%s] profile_uid detectado=%r", idx, profile_uid)
                 if not profile_uid:
                     logger.info("AjaxARAddExt: [%s] sin profile seleccionado; no autocompleto SampleType.", idx)
                     continue
 
                 st_uid, st_title = _resolve_sampletype_from_profile(self.context, profile_uid)
-                logger.debug("AjaxARAddExt: [%s] resuelto SampleType (uid=%r, title=%r) desde profile %r",
-                             idx, st_uid, st_title, profile_uid)
+                logger.info("AjaxARAddExt: [%s] SampleType resuelto desde profile %r -> uid=%r, title=%r",
+                            idx, profile_uid, st_uid, st_title)
                 if not st_uid:
                     logger.info("AjaxARAddExt: [%s] AnalysisProfile %r sin SampleType asociado.", idx, profile_uid)
                     continue
@@ -138,7 +190,6 @@ class AjaxARAddExt(BrowserView):
                     logger.info("AjaxARAddExt: [%s] SampleType autocompletado -> uid=%s, title=%s",
                                 idx, st_uid, st_title)
 
-            # 2) Si hubo cambios, devolver JSON modificado
             if changed_any:
                 return _json_dumps(payload)
 
@@ -155,11 +206,6 @@ class AjaxARAddExt(BrowserView):
 # ------------------------------------------------------------------------------#
 def _iter_values_dicts(payload):
     """Yield (index_str, values_dict) para cada record encontrado en el payload."""
-    # Casos frecuentes:
-    # payload = {"records": [ {"values": {...}}, {"values": {...}} ]}
-    # payload = {"data":    [ {"values": {...}} ]}
-    # payload = {"records": {"0": {"values": {...}}}}
-    # payload = {"values": {...}}  # un solo record
     if isinstance(payload, dict):
         container = payload.get("records")
         if container is None:
@@ -179,7 +225,6 @@ def _iter_values_dicts(payload):
                     yield (str(k), vals)
             return
 
-        # Fallback: sin records explícitos
         vals = _values_from_record(payload)
         if isinstance(vals, dict):
             yield ("0", vals)
@@ -192,13 +237,11 @@ def _values_from_record(rec):
         return rec.get("values")
     if isinstance(rec.get("fields"), dict):
         return rec.get("fields")
-    # a veces el record ES el dict de campos
     return rec
 
 
 def _sampletype_is_set(vals):
     """True si hay algún valor de SampleType ya presente (varias variantes)."""
-    # Chequeo amplio sobre claves relacionadas
     for key in list(vals.keys()):
         if key.startswith("SampleType"):
             v = vals.get(key)
@@ -209,7 +252,6 @@ def _sampletype_is_set(vals):
             if vals.get("%s_uid" % key) or vals.get("%s:uid" % key):
                 return True
 
-    # Claves más comunes
     for key in ("SampleType-0", "SampleType", "SampleTypes", "SampleTypes-0"):
         v = vals.get(key)
         if isinstance(v, basestring) and v.strip():
@@ -218,21 +260,18 @@ def _sampletype_is_set(vals):
             return True
         if vals.get("%s_uid" % key) or vals.get("%s:uid" % key):
             return True
-        # lista (algunos widgets plural)
         if isinstance(v, (list, tuple)) and v:
             first = v[0]
             if isinstance(first, basestring) and first.strip():
                 return True
             if isinstance(first, dict) and (first.get("uid") or first.get("UID")):
                 return True
-
     return False
 
 
 def _extract_profile_uid(vals):
     """Intenta extraer el UID del AnalysisProfile seleccionado desde vals."""
     candidate_keys = []
-    # Variantes usuales de widget
     candidate_keys.extend([k for k in vals.keys() if k.startswith("Profiles-0")])
     candidate_keys.extend([k for k in vals.keys() if k.startswith("Profiles")])
     candidate_keys.extend([k for k in vals.keys() if k.startswith("Profile")])
@@ -240,14 +279,11 @@ def _extract_profile_uid(vals):
 
     for key in candidate_keys:
         v = vals.get(key)
-        # dict {'uid': '...'} o {'UID': '...'}
         if isinstance(v, dict):
             if v.get("uid"): return v.get("uid")
             if v.get("UID"): return v.get("UID")
-        # string 'UID'
         if isinstance(v, basestring) and v.strip():
             return v.strip()
-        # lista de dicts/strings
         if isinstance(v, (list, tuple)) and v:
             first = v[0]
             if isinstance(first, dict):
@@ -255,12 +291,9 @@ def _extract_profile_uid(vals):
                 if first.get("UID"): return first.get("UID")
             if isinstance(first, basestring) and first.strip():
                 return first.strip()
-
-        # variantes widgets con sufijos
         uid_alt = vals.get("%s_uid" % key) or vals.get("%s:uid" % key)
         if isinstance(uid_alt, basestring) and uid_alt.strip():
             return uid_alt.strip()
-
     return None
 
 
@@ -283,7 +316,6 @@ def _resolve_sampletype_from_profile(context, profile_uid):
         obj = brain.getObject() if hasattr(brain, "getObject") else None
         st_obj = None
 
-        # 1) API común en distintos builds
         for getter in ("getSampleType", "SampleType", "sampletype", "sample_type", "getSampletype"):
             if obj and hasattr(obj, getter):
                 st_obj = getattr(obj, getter)
@@ -291,11 +323,9 @@ def _resolve_sampletype_from_profile(context, profile_uid):
                 if st_obj:
                     break
 
-        # 2) Relaciones (dexterity)
         if st_obj and hasattr(st_obj, "to_object"):
             st_obj = st_obj.to_object
 
-        # 3) Archetypes (field)
         if not st_obj and obj and hasattr(obj, "schema"):
             try:
                 field = obj.getField("SampleType")
@@ -304,7 +334,6 @@ def _resolve_sampletype_from_profile(context, profile_uid):
             except Exception:
                 pass
 
-        # 4) Metadatos del catálogo (último recurso)
         if not st_obj:
             st_uid = getattr(brain, "sampletype_uid", None)
             st_title = getattr(brain, "sampletype_title", None)
@@ -312,7 +341,6 @@ def _resolve_sampletype_from_profile(context, profile_uid):
                 return (st_uid, st_title)
             return (None, None)
 
-        # Extraer UID/Title del objeto
         st_uid = getattr(st_obj, "UID", None)
         st_uid = st_uid() if callable(st_uid) else st_uid
         st_title = getattr(st_obj, "Title", None)
@@ -331,25 +359,20 @@ def _force_set_sampletype(vals, st_uid, st_title):
     """Setea SampleType en muchos formatos usuales. Devuelve True si cambió algo."""
     changed = False
 
-    # Claves candidatas observadas en UI
-    # Primero busca las que ya existan en el payload
     candidate_keys = [k for k in vals.keys() if k.startswith("SampleType-0")]
     candidate_keys += [k for k in vals.keys() if k == "SampleType"]
     candidate_keys += [k for k in vals.keys() if k.startswith("SampleType")]
-    # fallback por si no vienen
     if not candidate_keys:
         candidate_keys = ["SampleType-0", "SampleType"]
 
     def _ensure_all_formats(key):
         local_changed = False
 
-        # 1) String UID (muy común)
         cur = vals.get(key)
         if not (isinstance(cur, basestring) and cur.strip()):
             vals[key] = st_uid
             local_changed = True
 
-        # 2) Auxiliares
         if vals.get("%s_uid" % key) != st_uid:
             vals["%s_uid" % key] = st_uid
             local_changed = True
@@ -360,8 +383,6 @@ def _force_set_sampletype(vals, st_uid, st_title):
             vals["%s:title" % key] = st_title
             local_changed = True
 
-        # 3) Dict espejo para builds que lo usan
-        #    (si ya es string, además creamos el dict paralelo)
         if not isinstance(cur, dict):
             vals["%s_dict" % key] = {"uid": st_uid, "UID": st_uid, "title": st_title}
             local_changed = True
@@ -384,10 +405,8 @@ def _force_set_sampletype(vals, st_uid, st_title):
         if _ensure_all_formats(key):
             logger.debug("AjaxARAddExt: SampleType seteado en clave '%s'", key)
             changed = True
-            # con un key consistente suele bastar; evita sobre-escrituras duplicadas
             break
 
-    # Si no hubo candidate_keys en el payload, crea explícitamente SampleType-0
     if not changed and "SampleType-0" not in vals:
         vals["SampleType-0"] = st_uid
         vals["SampleType-0_uid"] = st_uid
@@ -397,7 +416,6 @@ def _force_set_sampletype(vals, st_uid, st_title):
         logger.debug("AjaxARAddExt: SampleType creado en SampleType-0 (no existía en payload).")
         changed = True
 
-    # Si el widget plural existe, inyecta la primera posición por compat
     if "SampleTypes" in vals and not vals.get("SampleTypes"):
         vals["SampleTypes"] = [st_uid]
         changed = True
